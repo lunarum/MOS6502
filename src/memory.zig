@@ -3,14 +3,22 @@ const std = @import("std");
 pub const byte = u8;
 pub const word = u16;
 
+<<<<<<< HEAD
 const UNKNOWN_MEMORY_VALUE: byte = 0xAA; // standard dummy value
+=======
+const UNKNOWN_MEMORY_data: byte = 0xAA; // standard dummy data
+>>>>>>> Initial
 const ADDRESS_SIZE = 16; // 16 bits = 64KB address space
 const MEMORY_SIZE = 1 << ADDRESS_SIZE; // 64KB memory
 const PAGE_SIZE = 8; // 8 bits = 256B page size
 const PAGES = 1 << PAGE_SIZE; // 8 bits = 256 pages
 
 pub const MemoryReader = *const fn (memory: *Memory, address: word) byte;
+<<<<<<< HEAD
 pub const MemoryWriter = *const fn (memory: *Memory, address: word, value: byte) void;
+=======
+pub const MemoryWriter = *const fn (memory: *Memory, address: word, data: byte) void;
+>>>>>>> Initial
 
 pub const PageDescriptor = struct {
     reader: MemoryReader,
@@ -20,7 +28,12 @@ pub const PageDescriptor = struct {
 pub const Memory = struct {
     bytes: [MEMORY_SIZE]byte = [_]byte{0} ** MEMORY_SIZE,
     pages: [PAGES]?PageDescriptor = [_]?PageDescriptor{null} ** PAGES,
+<<<<<<< HEAD
     last_read: word = 0, // last address read, except for zero page and stack page access
+=======
+    addressBus: word = 0, // last used (read or written) address
+    dataBus: word = 0, // last used (read or written) data
+>>>>>>> Initial
 
     inline fn getPageDescriptor(self: *Memory, address: word) ?PageDescriptor {
         const page = address >> PAGE_SIZE;
@@ -56,6 +69,7 @@ pub const Memory = struct {
         return self.bytes[address];
     }
 
+<<<<<<< HEAD
     /// Get a value from the zero page; no page checking is done (R/W is assumed) and the page reader is not used.
     pub fn readZero(self: *Memory, addressZ: byte) byte {
         return self.bytes[addressZ];
@@ -97,16 +111,81 @@ pub const Memory = struct {
         if (self.getPageDescriptor(address)) |descriptor| {
             if (descriptor.writer) |writer| {
                 writer(self, address, value);
+=======
+    /// Get a data from the zero page; no page checking is done (R/W is assumed) and the page reader is not used.
+    pub fn readZero(self: *Memory, addressZ: byte) byte {
+        self.addressBus = addressZ;
+        self.dataBus = self.bytes[addressZ];
+        return self.dataBus;
+    }
+
+    /// Get a data from the stack page; no page checking is done (R/W is assumed) and the page reader is not used.
+    pub fn readStack(self: *Memory, addressSP: byte) byte {
+        self.addressBus = 0x0100 | @as(word, addressSP);
+        self.dataBus = self.bytes[self.addressBus];
+        return self.dataBus;
+    }
+
+    /// Read a memory location using the page descriptor reader
+    /// Return UNKNOWN_MEMORY_data if reading is not allowed
+    pub fn read(self: *Memory, address: word) byte {
+        self.addressBus = address;
+        if (self.getPageDescriptor(address)) |descriptor| {
+            self.dataBus = descriptor.reader(self, address);
+        } else {
+            self.dataBus = UNKNOWN_MEMORY_data;
+        }
+        return self.dataBus;
+    }
+
+    /// Standard memory writer
+    fn standardWriter(self: *Memory, address: word, data: byte) void {
+        self.bytes[address] = data;
+    }
+
+    /// Set a data in the zero page; no page checking is done (R/W is assumed) and the page writer is not used
+    pub fn writeZero(self: *Memory, addressZ: byte, data: byte) void {
+        self.addressBus = addressZ;
+        self.dataBus = data;
+        self.bytes[addressZ] = data;
+    }
+
+    /// Set a data in the stack page; no page checking is done (R/W is assumed) and the page writer is not used
+    pub fn writeStack(self: *Memory, addressSP: byte, data: byte) void {
+        self.addressBus = 0x0100 | @as(word, addressSP);
+        self.dataBus = data;
+        self.bytes[self.addressBus] = data;
+    }
+
+    /// Set a data on the address, if writing is enabled, using the page descriptor writer
+    /// Ignore writing to non-writable memory
+    pub fn write(self: *Memory, address: word, data: byte) void {
+        self.addressBus = address;
+        self.dataBus = data;
+        if (self.getPageDescriptor(address)) |descriptor| {
+            if (descriptor.writer) |writer| {
+                writer(self, address, data);
+>>>>>>> Initial
             }
         }
     }
 
+<<<<<<< HEAD
     /// Set a value on the last read address, if writing is enabled, using the page descriptor writer
     /// Ignore writing to non-writable memory
     pub fn memorySetLast(self: *Memory, value: byte) void {
         if (self.getPageDescriptor(self.last_read)) |descriptor| {
             if (descriptor.writer) |writer| {
                 writer(self, self.last_read, value);
+=======
+    /// Set a data on the last read address, if writing is enabled, using the page descriptor writer
+    /// Ignore writing to non-writable memory
+    pub fn writeLast(self: *Memory, data: byte) void {
+        self.dataBus = data;
+        if (self.getPageDescriptor(self.addressBus)) |descriptor| {
+            if (descriptor.writer) |writer| {
+                writer(self, self.addressBus, data);
+>>>>>>> Initial
             }
         }
     }
@@ -119,7 +198,11 @@ test "T.memoryWrite-Read" {
     memory.writeStack(0, 0x55);
     try std.testing.expect(memory.readStack(0) == 0x55);
     memory.write(0, 0x33); // should be ignored (no writer set)
+<<<<<<< HEAD
     try std.testing.expect(memory.read(0) == UNKNOWN_MEMORY_VALUE); // should default (no reader set)
+=======
+    try std.testing.expect(memory.read(0) == UNKNOWN_MEMORY_data); // should default (no reader set)
+>>>>>>> Initial
     try std.testing.expect(memory.readZero(0) == 0x55);
 }
 
