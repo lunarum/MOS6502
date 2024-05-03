@@ -515,7 +515,7 @@ pub const CPU6502 = struct {
                     value = self.memoryReadZeroPage();
                     self.PS.PS_N = ((value & 0x80) != 0);
                     self.PS.PS_V = ((value & 0x40) != 0);
-                    self.PS.PS_Z = ((value & self.A) != 0);
+                    self.PS.PS_Z = ((value & self.A) == 0);
                 },
                 0x25 => { // AND aa
                     self.last_cycles = 3;

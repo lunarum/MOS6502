@@ -55,7 +55,7 @@ pub fn main() !void {
                     std.debug.print("{s} ", .{entry.name});
                 continue;
             };
-            if (errors >= 100) {
+            if (errors >= 9) {
                 // the whole implementation propably has some serious problems; no need to test any further
                 std.debug.print("\n******** To many errors, aborting ********\n", .{});
                 break;
