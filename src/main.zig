@@ -95,7 +95,7 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
     defer parsed.deinit();
 
     var memory6502 = Memory.Memory{};
-    memory6502.setPageRW(0, 0xFF); // 64K of writable memory
+    memory6502.setPageRW(0, 0); // 64K of writable memory
 
     var cpu6502 = CPU.CPU6502{};
     cpu6502.init(&memory6502);
