@@ -555,7 +555,7 @@ pub const CPU6502 = struct {
                     self.last_cycles = 2;
                     tmp_PS_C = self.PS.PS_C;
                     self.PS.PS_C = ((self.A & 0x80) != 0);
-                    self.A = (value << 1) | @as(byte, @intFromBool(tmp_PS_C));
+                    self.A = (self.A << 1) | @as(byte, @intFromBool(tmp_PS_C));
                     self.PS.PS_N = ((self.A & 0x80) != 0);
                     self.PS.PS_Z = (self.A == 0);
                 },
@@ -565,7 +565,7 @@ pub const CPU6502 = struct {
                     value = self.memoryReadAbsolute();
                     self.PS.PS_N = ((value & 0x80) != 0);
                     self.PS.PS_V = ((value & 0x40) != 0);
-                    self.PS.PS_Z = ((value & self.A) != 0);
+                    self.PS.PS_Z = ((value & self.A) == 0);
                 },
                 0x2D => { // AND aaaa
                     self.last_cycles = 4;
@@ -656,6 +656,8 @@ pub const CPU6502 = struct {
                 0x40 => { // RTI
                     self.last_cycles = 6;
                     self.PS = @bitCast(self.stackPull());
+                    self.PS.PS_1 = true; // Pull value is ignored; value is always true
+                    self.PS.PS_B = false; // Pull value is ignored; value is always false
                     self.PC = self.stackPullAddress();
                 },
                 0x41 => { // EOR (aa,X)

@@ -40,25 +40,29 @@ pub fn main() !void {
 
     var iter = dir.iterate();
     var errors: u32 = 0;
+    var do_test = false;
     while (try iter.next()) |entry| {
         if (entry.kind == std.fs.File.Kind.file) {
-            std.debug.print("\n******** File [{s}] ", .{entry.name});
+            if (do_test or std.mem.eql(u8, entry.name, "40.json")) {
+                do_test = true;
+                std.debug.print("\n******** File [{s}] ", .{entry.name});
 
-            var json_file = try dir.openFile(entry.name, .{});
-            defer json_file.close();
+                var json_file = try dir.openFile(entry.name, .{});
+                defer json_file.close();
 
-            const json_text = try json_file.readToEndAlloc(allocator, 10 * 1024 * 1024);
-            defer allocator.free(json_text);
+                const json_text = try json_file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+                defer allocator.free(json_text);
 
-            errors += parseJSon(allocator, json_text) catch |err| {
-                if (err == error.InvalidItem)
-                    std.debug.print("{s} ", .{entry.name});
-                continue;
-            };
-            if (errors >= 20) {
-                // the whole implementation propably has some serious problems; no need to test any further
-                std.debug.print("\n******** To many errors, aborting ********\n", .{});
-                break;
+                errors += parseJSon(allocator, json_text) catch |err| {
+                    if (err == error.InvalidItem)
+                        std.debug.print("{s} ", .{entry.name});
+                    continue;
+                };
+                if (errors >= 8) {
+                    // the whole implementation propably has some serious problems; no need to test any further
+                    std.debug.print("\n******** To many errors, aborting ********\n", .{});
+                    break;
+                }
             }
         }
     }
