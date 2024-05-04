@@ -32,8 +32,8 @@ pub const Flags = packed struct(byte) {
     PS_Z: bool = false, // Zero
     PS_I: bool = false, // IRQ disable
     PS_D: bool = false, // Decimal mode
-    PS_B: bool = false, // (in) Break command
-    PS_0: bool = false,
+    PS_B: bool = false, // not a real register value; always false, but may be pushed to the stack as a true by BRK
+    PS_1: bool = true, // reserved and not a real register value; always 1
     PS_V: bool = false, // oVerflow
     PS_N: bool = false, // Negative
 };
@@ -360,9 +360,10 @@ pub const CPU6502 = struct {
             switch (opcode) {
                 0x00 => { // BRK
                     self.last_cycles = 7;
-                    self.stackPushAddress(self.PC +% 1);
-                    self.PS.PS_B = true;
+                    self.stackPushAddress(self.PC +% 1); // so that BRK may be used to replace a 2 byte instruction
+                    self.PS.PS_B = true; // Non-IRQ/NMI status push i.e. PS_B must be pushed as true
                     self.stackPush(@bitCast(self.PS));
+                    self.PS.PS_B = false;
                     self.PS.PS_I = true;
                     self.PC = self.memoryReadAddress(MEM_IRQ_BREAK);
                 },
@@ -394,7 +395,9 @@ pub const CPU6502 = struct {
                 // Illegal opcode 0x07: SLO aa
                 0x08 => { // PHP
                     self.last_cycles = 3;
+                    self.PS.PS_B = true; // Non-IRQ/NMI status push i.e. PS_B must be pushed as true
                     self.stackPush(@bitCast(self.PS));
+                    self.PS.PS_B = false;
                 },
                 0x09 => { // ORA #aa
                     self.last_cycles = 2;
@@ -538,6 +541,8 @@ pub const CPU6502 = struct {
                 0x28 => { // PLP
                     self.last_cycles = 4;
                     self.PS = @bitCast(self.stackPull());
+                    self.PS.PS_1 = true; // Pull value is ignored; value is always true
+                    self.PS.PS_B = false; // Pull value is ignored; value is always false
                 },
                 0x29 => { // AND #aa
                     self.last_cycles = 2;

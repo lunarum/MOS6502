@@ -55,7 +55,7 @@ pub fn main() !void {
                     std.debug.print("{s} ", .{entry.name});
                 continue;
             };
-            if (errors >= 9) {
+            if (errors >= 20) {
                 // the whole implementation propably has some serious problems; no need to test any further
                 std.debug.print("\n******** To many errors, aborting ********\n", .{});
                 break;
@@ -65,12 +65,14 @@ pub fn main() !void {
 }
 
 fn printFlags(flags: CPU.Flags) void {
+    const f: Memory.byte = @bitCast(flags);
+    std.debug.print("{x:2}:", .{f});
     if (flags.PS_C) std.debug.print("C", .{}) else std.debug.print("c", .{}); // Carry
     if (flags.PS_Z) std.debug.print("Z", .{}) else std.debug.print("z", .{}); // Zero
     if (flags.PS_I) std.debug.print("I", .{}) else std.debug.print("i", .{}); // IRQ disable
     if (flags.PS_D) std.debug.print("D", .{}) else std.debug.print("d", .{}); // Decimal mode
     if (flags.PS_B) std.debug.print("B", .{}) else std.debug.print("b", .{}); // (in) Break command
-    if (flags.PS_0) std.debug.print("1", .{}) else std.debug.print("0", .{}); // oVerflow
+    if (flags.PS_1) std.debug.print("1", .{}) else std.debug.print("0", .{}); // not used
     if (flags.PS_V) std.debug.print("V", .{}) else std.debug.print("v", .{}); // oVerflow
     if (flags.PS_N) std.debug.print("N", .{}) else std.debug.print("n", .{}); // Negative
 }
@@ -105,9 +107,7 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
     const entries = parsed.value;
     for (entries) |entry| {
         const ok = try executeTest(&cpu6502, entry);
-        if (ok) {
-            std.debug.print(".", .{});
-        } else {
+        if (!ok) {
             std.debug.print("\nERROR in test {s:8}: PC{x:4},SP{x:2},A{x:2},X{x:2},Y{x:2},", .{
                 entry.name,
                 entry.initial.pc,
@@ -133,7 +133,17 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
                 cpu6502.Y,
             });
             printFlags(cpu6502.PS);
-            std.debug.print(" ", .{});
+            std.debug.print("\nMEMORY ", .{});
+            for (entry.final.ram) |ram_entry| {
+                std.debug.print("{x:4}:{x:2} ", .{
+                    ram_entry.@"0",
+                    ram_entry.@"1",
+                });
+                const b = cpu6502.memoryManager.read(ram_entry.@"0");
+                if (b != ram_entry.@"1") {
+                    std.debug.print("!= {x:2} ", .{b});
+                }
+            }
             errors += 1;
             if (errors >= 8) {
                 // implementation is propably wrong; no need to test any further
@@ -161,6 +171,11 @@ fn executeTest(cpu6502: *CPU.CPU6502, entry: JSonTest6502) !bool {
         return error.InvalidItem;
     }
 
+    for (entry.final.ram) |ram_entry| {
+        if (cpu6502.memoryManager.read(ram_entry.@"0") != ram_entry.@"1") {
+            return false;
+        }
+    }
     const flags: u8 = @bitCast(cpu6502.PS);
     return cpu6502.PC == entry.final.pc and
         cpu6502.SP == entry.final.s and
