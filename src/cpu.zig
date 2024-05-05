@@ -73,6 +73,23 @@ pub const CPU6502 = struct {
         self.single_step = false;
     }
 
+    // self.calculateN(self.A);
+    // self.calculateZ(self.A);
+
+    pub inline fn calculateN(self: *CPU6502, value: byte) void {
+        self.PS.PS_N = (value & 0x80) != 0;
+    }
+
+    pub inline fn calculateV(self: *CPU6502, operand: byte, result: word) void {
+        // https://stackoverflow.com/questions/66141379/arithmetic-overflow-for-different-signed-numbers-6502-assembly
+        // v = ~(a^operand) & (a^result) & 0x80;
+        self.PS.PS_V = (~(self.A ^ operand) & (self.A ^ result) & 0x80) > 0;
+    }
+
+    pub inline fn calculateZ(self: *CPU6502, value: byte) void {
+        self.PS.PS_Z = value == 0;
+    }
+
     /// memoryReadAddress
     /// ----------------
     /// Read an address (word)) from given memory address, which is stored in little endian (LSB first) format.
@@ -370,8 +387,9 @@ pub const CPU6502 = struct {
                 0x01 => { // ORA (aa,X)
                     self.last_cycles = 6;
                     self.A |= self.memoryReadIndexedIndirectX();
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x02: KIL
                 // Illegal opcode 0x03: SLO (aa,X)
@@ -380,16 +398,16 @@ pub const CPU6502 = struct {
                     self.last_cycles = 3;
                     value = self.memoryReadZeroPage();
                     self.A |= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x06 => { // ASL aa
                     self.last_cycles = 5;
                     value = self.memoryReadZeroPage();
                     self.PS.PS_C = ((value & 0x80) != 0);
                     value <<= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x07: SLO aa
@@ -403,15 +421,15 @@ pub const CPU6502 = struct {
                     self.last_cycles = 2;
                     value = self.memoryReadImmediate();
                     self.A |= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x0A => { // ASL
                     self.last_cycles = 2;
                     self.PS.PS_C = ((self.A & 0x80) != 0);
                     self.A <<= 1;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x0B: ANC #aa
                 // Illegal opcode 0x0C: NOP aaaa
@@ -419,16 +437,16 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsolute();
                     self.A |= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x0E => { // ASL aaaa
                     self.last_cycles = 6;
                     value = self.memoryReadAbsolute();
                     self.PS.PS_C = ((value & 0x80) != 0);
                     value <<= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x0F: SLO aaaa
@@ -444,8 +462,8 @@ pub const CPU6502 = struct {
                     self.last_cycles = 5;
                     value = self.memoryReadIndirectIndexedY();
                     self.A |= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x12: KIL
                 // Illegal opcode 0x13: SLO (aa),Y
@@ -454,16 +472,16 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadZeroPageIndexedX();
                     self.A |= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x16 => { // ASL aa,X
                     self.last_cycles = 6;
                     value = self.memoryReadZeroPageIndexedX();
                     self.PS.PS_C = ((value & 0x80) != 0);
                     value <<= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x17: SLO aa,X
@@ -475,8 +493,8 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedY();
                     self.A |= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x1A: NOP
                 // Illegal opcode 0x1B: SLO aaaa,Y
@@ -485,16 +503,16 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedX();
                     self.A |= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x1E => { // ASL aaaa,X
                     self.last_cycles = 7;
                     value = self.memoryReadAbsoluteIndexedX();
                     self.PS.PS_C = ((value & 0x80) != 0);
                     value <<= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x1F: SLO aaaa,X
@@ -508,24 +526,24 @@ pub const CPU6502 = struct {
                     self.last_cycles = 6;
                     value = self.memoryReadIndexedIndirectX();
                     self.A &= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x22: KIL
                 // Illegal opcode 0x23: RLA (aa,X)
                 0x24 => { // BIT aa
                     self.last_cycles = 3;
                     value = self.memoryReadZeroPage();
-                    self.PS.PS_N = ((value & 0x80) != 0);
+                    self.calculateN(value);
                     self.PS.PS_V = ((value & 0x40) != 0);
-                    self.PS.PS_Z = ((value & self.A) == 0);
+                    self.calculateZ(value & self.A);
                 },
                 0x25 => { // AND aa
                     self.last_cycles = 3;
                     value = self.memoryReadZeroPage();
                     self.A &= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x26 => { // ROL aa
                     self.last_cycles = 5;
@@ -533,8 +551,8 @@ pub const CPU6502 = struct {
                     tmp_PS_C = self.PS.PS_C;
                     self.PS.PS_C = ((value & 0x80) != 0);
                     value = (value << 1) | @as(byte, @intFromBool(tmp_PS_C));
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x27: RLA aa
@@ -548,31 +566,31 @@ pub const CPU6502 = struct {
                     self.last_cycles = 2;
                     value = self.memoryReadImmediate();
                     self.A &= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x2A => { // ROL
                     self.last_cycles = 2;
                     tmp_PS_C = self.PS.PS_C;
                     self.PS.PS_C = ((self.A & 0x80) != 0);
                     self.A = (self.A << 1) | @as(byte, @intFromBool(tmp_PS_C));
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x2B: ANC #aa
                 0x2C => { // BIT aaaa
                     self.last_cycles = 4;
                     value = self.memoryReadAbsolute();
-                    self.PS.PS_N = ((value & 0x80) != 0);
+                    self.calculateN(value);
                     self.PS.PS_V = ((value & 0x40) != 0);
-                    self.PS.PS_Z = ((value & self.A) == 0);
+                    self.calculateZ(value & self.A);
                 },
                 0x2D => { // AND aaaa
                     self.last_cycles = 4;
                     value = self.memoryReadAbsolute();
                     self.A &= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x2E => { // ROL aaaa
                     self.last_cycles = 6;
@@ -580,8 +598,8 @@ pub const CPU6502 = struct {
                     tmp_PS_C = self.PS.PS_C;
                     self.PS.PS_C = ((value & 0x80) != 0);
                     value = (value << 1) | @as(byte, @intFromBool(tmp_PS_C));
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x2F: RLA aaaa
@@ -597,8 +615,8 @@ pub const CPU6502 = struct {
                     self.last_cycles = 5;
                     value = self.memoryReadIndirectIndexedY();
                     self.A &= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x32: KIL
                 // Illegal opcode 0x33: RLA (aa),Y
@@ -607,8 +625,8 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadZeroPageIndexedX();
                     self.A &= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x36 => { // ROL aa,X
                     self.last_cycles = 6;
@@ -616,8 +634,8 @@ pub const CPU6502 = struct {
                     tmp_PS_C = self.PS.PS_C;
                     self.PS.PS_C = ((value & 0x80) != 0);
                     value = (value << 1) | @as(byte, @intFromBool(tmp_PS_C));
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x37: RLA aa,X
@@ -629,8 +647,8 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedY();
                     self.A &= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x3A: NOP
                 // Illegal opcode 0x3B: RLA aaaa,Y
@@ -639,8 +657,8 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedX();
                     self.A &= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x3E => { // ROL aaaa,X
                     self.last_cycles = 7;
@@ -648,8 +666,8 @@ pub const CPU6502 = struct {
                     tmp_PS_C = self.PS.PS_C;
                     self.PS.PS_C = ((value & 0x80) != 0);
                     value = (value << 1) | @as(byte, @intFromBool(tmp_PS_C));
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x3F: RLA aaaa,X
@@ -664,8 +682,8 @@ pub const CPU6502 = struct {
                     self.last_cycles = 6;
                     value = self.memoryReadIndexedIndirectX();
                     self.A ^= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x42: KIL
                 // Illegal opcode 0x43: SRE (aa,X)
@@ -674,16 +692,16 @@ pub const CPU6502 = struct {
                     self.last_cycles = 3;
                     value = self.memoryReadZeroPage();
                     self.A ^= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x46 => { // LSR aa
                     self.last_cycles = 5;
                     value = self.memoryReadZeroPage();
                     self.PS.PS_C = ((value & 0x01) != 0);
                     value >>= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x47: SRE aa
@@ -695,15 +713,15 @@ pub const CPU6502 = struct {
                     self.last_cycles = 2;
                     value = self.memoryReadImmediate();
                     self.A ^= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x4A => { // LSR
                     self.last_cycles = 2;
                     self.PS.PS_C = ((self.A & 0x01) != 0);
                     self.A >>= 1;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x4B: ALR #aa
                 0x4C => { // JMP aaaa
@@ -714,16 +732,16 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsolute();
                     self.A ^= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x4E => { // LSR aaaa
                     self.last_cycles = 6;
                     value = self.memoryReadAbsolute();
                     self.PS.PS_C = ((value & 0x01) != 0);
                     value >>= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x4F: SRE aaaa
@@ -739,8 +757,8 @@ pub const CPU6502 = struct {
                     self.last_cycles = 5;
                     value = self.memoryReadIndirectIndexedY();
                     self.A ^= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x52: KIL
                 // Illegal opcode 0x53: SRE (aa),Y
@@ -749,16 +767,16 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadZeroPageIndexedX();
                     self.A ^= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x56 => { // LSR aa,X
                     self.last_cycles = 6;
                     value = self.memoryReadZeroPageIndexedX();
                     self.PS.PS_C = ((value & 0x01) != 0);
                     value >>= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x57: SRE aa,X
@@ -770,8 +788,8 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedY();
                     self.A ^= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x5A: NOP
                 // Illegal opcode 0x5B: SRE aaaa,Y
@@ -780,16 +798,16 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedX();
                     self.A ^= value;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x5E => { // LSR aaaa,X
                     self.last_cycles = 7;
                     value = self.memoryReadAbsoluteIndexedX();
                     self.PS.PS_C = ((value & 0x01) != 0);
                     value >>= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x5F: SRE aaaa,X
@@ -806,9 +824,11 @@ pub const CPU6502 = struct {
                             value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
                         value_w +%= (self.A & 0xF0) +% (value & 0xF0);
 
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                        self.PS.PS_Z = (value_w == 0);
+                        self.calculateN(@truncate(value_w));
+                        // https://stackoverflow.com/questions/66141379/arithmetic-overflow-for-different-signed-numbers-6502-assembly
+                        // v = ~(a^operand) & (a^result) & 0x80;
+                        self.PS.PS_V = (~(self.A ^ value) & (self.A ^ value_w) & 0x80) > 0;
+                        self.calculateZ(@truncate(value_w));
 
                         if (value_w >= 0xA0)
                             value_w +%= 0x60;
@@ -816,10 +836,12 @@ pub const CPU6502 = struct {
                         self.PS.PS_C = (value_w >= 0x100);
                     } else {
                         value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
+                        self.calculateN(@truncate(value_w));
+                        // https://stackoverflow.com/questions/66141379/arithmetic-overflow-for-different-signed-numbers-6502-assembly
+                        // v = ~(a^operand) & (a^result) & 0x80;
+                        self.PS.PS_V = (~(self.A ^ value) & (self.A ^ value_w) & 0x80) > 0;
                         self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_Z = (self.A == 0);
+                        self.calculateZ(self.A);
                         self.PS.PS_C = (value_w >= 0x100);
                     }
                 },
@@ -835,9 +857,9 @@ pub const CPU6502 = struct {
                             value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
                         value_w +%= (self.A & 0xF0) +% (value & 0xF0);
 
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                        self.PS.PS_Z = (value_w == 0);
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
+                        self.calculateZ(@truncate(value_w));
 
                         if (value_w >= 0xA0)
                             value_w +%= 0x60;
@@ -845,10 +867,11 @@ pub const CPU6502 = struct {
                         self.PS.PS_C = (value_w >= 0x100);
                     } else {
                         value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
+                        self.calculateV(value, value_w);
                         self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_Z = (self.A == 0);
+                        self.calculateZ(self.A);
                         self.PS.PS_C = (value_w >= 0x100);
                     }
                 },
@@ -858,16 +881,16 @@ pub const CPU6502 = struct {
                     tmp_PS_C = self.PS.PS_C;
                     self.PS.PS_C = ((value & 0x01) != 0);
                     value = (value >> 1) | (@as(byte, @as(byte, @intFromBool(tmp_PS_C))) << 7);
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x67: RRA aa
                 0x68 => { // PLA
                     self.last_cycles = 4;
                     self.A = self.stackPull();
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x69 => { // ADC #aa
                     self.last_cycles = 2;
@@ -878,9 +901,9 @@ pub const CPU6502 = struct {
                             value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
                         value_w +%= (self.A & 0xF0) +% (value & 0xF0);
 
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                        self.PS.PS_Z = (value_w == 0);
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
+                        self.calculateZ(@truncate(value_w));
 
                         if (value_w >= 0xA0)
                             value_w +%= 0x60;
@@ -888,10 +911,10 @@ pub const CPU6502 = struct {
                         self.PS.PS_C = (value_w >= 0x100);
                     } else {
                         value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
                         self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_Z = (self.A == 0);
+                        self.calculateZ(self.A);
                         self.PS.PS_C = (value_w >= 0x100);
                     }
                 },
@@ -900,8 +923,8 @@ pub const CPU6502 = struct {
                     tmp_PS_C = self.PS.PS_C;
                     self.PS.PS_C = ((self.A & 0x01) != 0);
                     self.A = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x6B: ARR #aa
                 0x6C => { // JMP (aaaa)
@@ -917,9 +940,9 @@ pub const CPU6502 = struct {
                             value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
                         value_w +%= (self.A & 0xF0) +% (value & 0xF0);
 
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                        self.PS.PS_Z = (value_w == 0);
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
+                        self.calculateZ(@truncate(value_w));
 
                         if (value_w >= 0xA0)
                             value_w +%= 0x60;
@@ -927,10 +950,10 @@ pub const CPU6502 = struct {
                         self.PS.PS_C = (value_w >= 0x100);
                     } else {
                         value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
                         self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_Z = (self.A == 0);
+                        self.calculateZ(self.A);
                         self.PS.PS_C = (value_w >= 0x100);
                     }
                 },
@@ -940,8 +963,8 @@ pub const CPU6502 = struct {
                     tmp_PS_C = self.PS.PS_C;
                     self.PS.PS_C = ((value & 0x01) != 0);
                     value = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x6F: RRA aaaa
@@ -962,9 +985,9 @@ pub const CPU6502 = struct {
                             value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
                         value_w +%= (self.A & 0xF0) +% (value & 0xF0);
 
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                        self.PS.PS_Z = (value_w == 0);
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
+                        self.calculateZ(@truncate(value_w));
 
                         if (value_w >= 0xA0)
                             value_w +%= 0x60;
@@ -972,10 +995,10 @@ pub const CPU6502 = struct {
                         self.PS.PS_C = (value_w >= 0x100);
                     } else {
                         value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
                         self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_Z = (self.A == 0);
+                        self.calculateZ(self.A);
                         self.PS.PS_C = (value_w >= 0x100);
                     }
                 },
@@ -991,9 +1014,9 @@ pub const CPU6502 = struct {
                             value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
                         value_w +%= (self.A & 0xF0) +% (value & 0xF0);
 
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                        self.PS.PS_Z = (value_w == 0);
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
+                        self.calculateZ(@truncate(value_w));
 
                         if (value_w >= 0xA0)
                             value_w +%= 0x60;
@@ -1001,10 +1024,10 @@ pub const CPU6502 = struct {
                         self.PS.PS_C = (value_w >= 0x100);
                     } else {
                         value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
                         self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_Z = (self.A == 0);
+                        self.calculateZ(self.A);
                         self.PS.PS_C = (value_w >= 0x100);
                     }
                 },
@@ -1014,8 +1037,8 @@ pub const CPU6502 = struct {
                     tmp_PS_C = self.PS.PS_C;
                     self.PS.PS_C = ((value & 0x01) != 0);
                     value = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x77: RRA aa,X
@@ -1032,9 +1055,9 @@ pub const CPU6502 = struct {
                             value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
                         value_w +%= (self.A & 0xF0) +% (value & 0xF0);
 
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                        self.PS.PS_Z = (value_w == 0);
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
+                        self.calculateZ(@truncate(value_w));
 
                         if (value_w >= 0xA0)
                             value_w +%= 0x60;
@@ -1042,10 +1065,10 @@ pub const CPU6502 = struct {
                         self.PS.PS_C = (value_w >= 0x100);
                     } else {
                         value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
                         self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_Z = (self.A == 0);
+                        self.calculateZ(self.A);
                         self.PS.PS_C = (value_w >= 0x100);
                     }
                 },
@@ -1061,9 +1084,9 @@ pub const CPU6502 = struct {
                             value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
                         value_w +%= (self.A & 0xF0) +% (value & 0xF0);
 
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                        self.PS.PS_Z = (value_w == 0);
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
+                        self.calculateZ(@truncate(value_w));
 
                         if (value_w >= 0xA0)
                             value_w +%= 0x60;
@@ -1071,10 +1094,10 @@ pub const CPU6502 = struct {
                         self.PS.PS_C = (value_w >= 0x100);
                     } else {
                         value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.PS.PS_N = ((value_w & 0x80) != 0);
-                        self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
+                        self.calculateN(@truncate(value_w));
+                        self.calculateV(value, value_w);
                         self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_Z = (self.A == 0);
+                        self.calculateZ(self.A);
                         self.PS.PS_C = (value_w >= 0x100);
                     }
                 },
@@ -1084,8 +1107,8 @@ pub const CPU6502 = struct {
                     tmp_PS_C = self.PS.PS_C;
                     self.PS.PS_C = ((value & 0x01) != 0);
                     value = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0x7F: RRA aaaa,X
@@ -1112,15 +1135,15 @@ pub const CPU6502 = struct {
                 0x88 => { // DEY
                     self.last_cycles = 2;
                     self.Y -%= 1;
-                    self.PS.PS_N = ((self.Y & 0x80) != 0);
-                    self.PS.PS_Z = (self.Y == 0);
+                    self.calculateN(self.Y);
+                    self.calculateZ(self.Y);
                 },
                 // Illegal opcode 0x89: NOP #aa
                 0x8A => { // TXA
                     self.last_cycles = 2;
                     self.A = self.X;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0x8B: XAA #aa
                 0x8C => { // STY aaaa
@@ -1166,8 +1189,8 @@ pub const CPU6502 = struct {
                 0x98 => { // TYA
                     self.last_cycles = 2;
                     self.A = self.Y;
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0x99 => { // STA aaaa,Y
                     self.last_cycles = 5;
@@ -1188,77 +1211,77 @@ pub const CPU6502 = struct {
                 0xA0 => { // LDY #aa
                     self.last_cycles = 2;
                     self.Y = self.memoryReadImmediate();
-                    self.PS.PS_N = ((self.Y & 0x80) != 0);
-                    self.PS.PS_Z = (self.Y == 0);
+                    self.calculateN(self.Y);
+                    self.calculateZ(self.Y);
                 },
                 0xA1 => { // LDA (aa,X)
                     self.last_cycles = 6;
                     self.A = self.memoryReadIndexedIndirectX();
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0xA2 => { // LDX #aa
                     self.last_cycles = 2;
                     self.X = self.memoryReadImmediate();
-                    self.PS.PS_N = ((self.X & 0x80) != 0);
-                    self.PS.PS_Z = (self.X == 0);
+                    self.calculateN(self.X);
+                    self.calculateZ(self.X);
                 },
                 // Illegal opcode 0xA3: LAX (aa,X)
                 0xA4 => { // LDY aa
                     self.last_cycles = 3;
                     self.Y = self.memoryReadZeroPage();
-                    self.PS.PS_N = ((self.Y & 0x80) != 0);
-                    self.PS.PS_Z = (self.Y == 0);
+                    self.calculateN(self.Y);
+                    self.calculateZ(self.Y);
                 },
                 0xA5 => { // LDA aa
                     self.last_cycles = 3;
                     self.A = self.memoryReadZeroPage();
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0xA6 => { // LDX aa
                     self.last_cycles = 3;
                     self.X = self.memoryReadZeroPage();
-                    self.PS.PS_N = ((self.X & 0x80) != 0);
-                    self.PS.PS_Z = (self.X == 0);
+                    self.calculateN(self.X);
+                    self.calculateZ(self.X);
                 },
                 // Illegal opcode 0xA7: LAX aa
                 0xA8 => { // TAY
                     self.last_cycles = 2;
                     self.Y = self.A;
-                    self.PS.PS_N = ((self.Y & 0x80) != 0);
-                    self.PS.PS_Z = (self.Y == 0);
+                    self.calculateN(self.Y);
+                    self.calculateZ(self.Y);
                 },
                 0xA9 => { // LDA #aa
                     self.last_cycles = 2;
                     self.A = self.memoryReadImmediate();
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0xAA => { // TAX
                     self.last_cycles = 2;
                     self.X = self.A;
-                    self.PS.PS_N = ((self.X & 0x80) != 0);
-                    self.PS.PS_Z = (self.X == 0);
+                    self.calculateN(self.X);
+                    self.calculateZ(self.X);
                 },
                 // Illegal opcode 0xAB: LAX #aa
                 0xAC => { // LDY aaaa
                     self.last_cycles = 4;
                     self.Y = self.memoryReadAbsolute();
-                    self.PS.PS_N = ((self.Y & 0x80) != 0);
-                    self.PS.PS_Z = (self.Y == 0);
+                    self.calculateN(self.Y);
+                    self.calculateZ(self.Y);
                 },
                 0xAD => { // LDA aaaa
                     self.last_cycles = 4;
                     self.A = self.memoryReadAbsolute();
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0xAE => { // LDX aaaa
                     self.last_cycles = 4;
                     self.X = self.memoryReadAbsolute();
-                    self.PS.PS_N = ((self.X & 0x80) != 0);
-                    self.PS.PS_Z = (self.X == 0);
+                    self.calculateN(self.X);
+                    self.calculateZ(self.X);
                 },
                 // Illegal opcode 0xAF: LAX aaaa
                 0xB0 => { // BCS aaaa
@@ -1272,28 +1295,28 @@ pub const CPU6502 = struct {
                 0xB1 => { // LDA (aa),Y
                     self.last_cycles = 5;
                     self.A = self.memoryReadIndirectIndexedY();
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 // Illegal opcode 0xB2: KIL
                 // Illegal opcode 0xB3: LAX (aa),Y
                 0xB4 => { // LDY aa,X
                     self.last_cycles = 4;
                     self.Y = self.memoryReadZeroPageIndexedX();
-                    self.PS.PS_N = ((self.Y & 0x80) != 0);
-                    self.PS.PS_Z = (self.Y == 0);
+                    self.calculateN(self.Y);
+                    self.calculateZ(self.Y);
                 },
                 0xB5 => { // LDA aa,X
                     self.last_cycles = 4;
                     self.A = self.memoryReadZeroPageIndexedX();
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0xB6 => { // LDX aa,Y
                     self.last_cycles = 4;
                     self.X = self.memoryReadZeroPageIndexedY();
-                    self.PS.PS_N = ((self.X & 0x80) != 0);
-                    self.PS.PS_Z = (self.X == 0);
+                    self.calculateN(self.X);
+                    self.calculateZ(self.X);
                 },
                 // Illegal opcode 0xB7: LAX aa,Y
                 0xB8 => { // CLV
@@ -1303,49 +1326,49 @@ pub const CPU6502 = struct {
                 0xB9 => { // LDA aaaa,Y
                     self.last_cycles = 4;
                     self.A = self.memoryReadAbsoluteIndexedY();
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0xBA => { // TSX
                     self.last_cycles = 2;
                     self.X = self.SP;
-                    self.PS.PS_N = ((self.X & 0x80) != 0);
-                    self.PS.PS_Z = (self.X == 0);
+                    self.calculateN(self.X);
+                    self.calculateZ(self.X);
                 },
                 // Illegal opcode 0xBB: LAS aaaa,Y
                 0xBC => { // LDY aaaa,X
                     self.last_cycles = 4;
                     self.Y = self.memoryReadAbsoluteIndexedX();
-                    self.PS.PS_N = ((self.Y & 0x80) != 0);
-                    self.PS.PS_Z = (self.Y == 0);
+                    self.calculateN(self.Y);
+                    self.calculateZ(self.Y);
                 },
                 0xBD => { // LDA aaaa,X
                     self.last_cycles = 4;
                     self.A = self.memoryReadAbsoluteIndexedX();
-                    self.PS.PS_N = ((self.A & 0x80) != 0);
-                    self.PS.PS_Z = (self.A == 0);
+                    self.calculateN(self.A);
+                    self.calculateZ(self.A);
                 },
                 0xBE => { // LDX aaaa,Y
                     self.last_cycles = 4;
                     self.X = self.memoryReadAbsoluteIndexedY();
-                    self.PS.PS_N = ((self.X & 0x80) != 0);
-                    self.PS.PS_Z = (self.X == 0);
+                    self.calculateN(self.X);
+                    self.calculateZ(self.X);
                 },
                 // Illegal opcode 0xBF: LAX aaaa,Y
                 0xC0 => { // CPY #aa
                     self.last_cycles = 2;
                     value = self.memoryReadImmediate();
                     value = self.Y -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 0xC1 => { // CMP (aa,X)
                     self.last_cycles = 6;
                     value = self.memoryReadIndexedIndirectX();
                     value = self.A -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 // Illegal opcode 0xC2: NOP #aa
@@ -1354,70 +1377,70 @@ pub const CPU6502 = struct {
                     self.last_cycles = 3;
                     value = self.memoryReadZeroPage();
                     value = self.Y -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 0xC5 => { // CMP aa
                     self.last_cycles = 3;
                     value = self.memoryReadZeroPage();
                     value = self.A -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 0xC6 => { // DEC aa
                     self.last_cycles = 5;
                     value = self.memoryReadZeroPage();
                     value -%= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0xC7: DCP aa
                 0xC8 => { // INY
                     self.last_cycles = 2;
                     self.Y +%= 1;
-                    self.PS.PS_N = ((self.Y & 0x80) != 0);
-                    self.PS.PS_Z = (self.Y == 0);
+                    self.calculateN(self.Y);
+                    self.calculateZ(self.Y);
                 },
                 0xC9 => { // CMP #aa
                     self.last_cycles = 2;
                     value = self.memoryReadImmediate();
                     value = self.A -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 0xCA => { // DEX
                     self.last_cycles = 2;
                     self.X -%= 1;
-                    self.PS.PS_N = ((self.X & 0x80) != 0);
-                    self.PS.PS_Z = (self.X == 0);
+                    self.calculateN(self.X);
+                    self.calculateZ(self.X);
                 },
                 // Illegal opcode 0xCB: AXS #aa
                 0xCC => { // CPY aaaa
                     self.last_cycles = 4;
                     value = self.memoryReadAbsolute();
                     value = self.Y -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 0xCD => { // CMP aaaa
                     self.last_cycles = 4;
                     value = self.memoryReadAbsolute();
                     value = self.A -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 0xCE => { // DEC aaaa
                     self.last_cycles = 6;
                     value = self.memoryReadAbsolute();
                     value -%= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0xCF: DCP aaaa
@@ -1433,8 +1456,8 @@ pub const CPU6502 = struct {
                     self.last_cycles = 5;
                     value = self.memoryReadIndirectIndexedY();
                     value = self.A -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 // Illegal opcode 0xD2: KIL
@@ -1444,16 +1467,16 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadZeroPageIndexedX();
                     value = self.A -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 0xD6 => { // DEC aa,X
                     self.last_cycles = 6;
                     value = self.memoryReadZeroPageIndexedX();
                     value -%= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0xD7: DCP aa,X
@@ -1465,8 +1488,8 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedY();
                     value = self.A -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 // Illegal opcode 0xDA: NOP
@@ -1476,16 +1499,16 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedX();
                     value = self.A -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 0xDE => { // DEC aaaa,X
                     self.last_cycles = 7;
                     value = self.memoryReadAbsoluteIndexedX();
                     value -%= 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0xDF: DCP aaaa,X
@@ -1493,17 +1516,17 @@ pub const CPU6502 = struct {
                     self.last_cycles = 2;
                     value = self.memoryReadImmediate();
                     value = self.X -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 0xE1 => { // SBC (aa,X)
                     self.last_cycles = 6;
                     value = self.memoryReadIndexedIndirectX();
                     value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
-                    self.PS.PS_N = ((value_w & 0x80) != 0);
-                    self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                    self.PS.PS_Z = (value_w == 0);
+                    self.calculateN(@truncate(value_w));
+                    self.calculateV(value, value_w);
+                    self.calculateZ(@truncate(value_w));
                     self.PS.PS_C = (value_w < 0x100);
 
                     if (self.PS.PS_D) {
@@ -1522,17 +1545,17 @@ pub const CPU6502 = struct {
                     self.last_cycles = 3;
                     value = self.memoryReadZeroPage();
                     value = self.X -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 0xE5 => { // SBC aa
                     self.last_cycles = 3;
                     value = self.memoryReadZeroPage();
                     value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
-                    self.PS.PS_N = ((value_w & 0x80) != 0);
-                    self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                    self.PS.PS_Z = (value_w == 0);
+                    self.calculateN(@truncate(value_w));
+                    self.calculateV(value, value_w);
+                    self.calculateZ(@truncate(value_w));
                     self.PS.PS_C = (value_w < 0x100);
 
                     if (self.PS.PS_D) {
@@ -1548,24 +1571,24 @@ pub const CPU6502 = struct {
                 0xE6 => { // INC aa
                     self.last_cycles = 5;
                     value = self.memoryReadZeroPage() +% 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0xE7: ISC aa
                 0xE8 => { // INX
                     self.last_cycles = 2;
                     self.X +%= 1;
-                    self.PS.PS_N = ((self.X & 0x80) != 0);
-                    self.PS.PS_Z = (self.X == 0);
+                    self.calculateN(self.X);
+                    self.calculateZ(self.X);
                 },
                 0xE9 => { // SBC #aa
                     self.last_cycles = 2;
                     value = self.memoryReadImmediate();
                     value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
-                    self.PS.PS_N = ((value_w & 0x80) != 0);
-                    self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                    self.PS.PS_Z = (value_w == 0);
+                    self.calculateN(@truncate(value_w));
+                    self.calculateV(value, value_w);
+                    self.calculateZ(@truncate(value_w));
                     self.PS.PS_C = (value_w < 0x100);
 
                     if (self.PS.PS_D) {
@@ -1588,17 +1611,17 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsolute();
                     value = self.X -% value;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.PS.PS_C = !self.PS.PS_N;
                 },
                 0xED => { // SBC aaaa
                     self.last_cycles = 4;
                     value = self.memoryReadAbsolute();
                     value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
-                    self.PS.PS_N = ((value_w & 0x80) != 0);
-                    self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                    self.PS.PS_Z = (value_w == 0);
+                    self.calculateN(@truncate(value_w));
+                    self.calculateV(value, value_w);
+                    self.calculateZ(@truncate(value_w));
                     self.PS.PS_C = (value_w < 0x100);
 
                     if (self.PS.PS_D) {
@@ -1614,8 +1637,8 @@ pub const CPU6502 = struct {
                 0xEE => { // INC aaaa
                     self.last_cycles = 6;
                     value = self.memoryReadAbsolute() +% 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0xEF: ISC aaaa
@@ -1631,9 +1654,9 @@ pub const CPU6502 = struct {
                     self.last_cycles = 5;
                     value = self.memoryReadIndirectIndexedY();
                     value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
-                    self.PS.PS_N = ((value_w & 0x80) != 0);
-                    self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                    self.PS.PS_Z = (value_w == 0);
+                    self.calculateN(@truncate(value_w));
+                    self.calculateV(value, value_w);
+                    self.calculateZ(@truncate(value_w));
                     self.PS.PS_C = (value_w < 0x100);
 
                     if (self.PS.PS_D) {
@@ -1653,9 +1676,9 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadZeroPageIndexedX();
                     value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
-                    self.PS.PS_N = ((value_w & 0x80) != 0);
-                    self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                    self.PS.PS_Z = (value_w == 0);
+                    self.calculateN(@truncate(value_w));
+                    self.calculateV(value, value_w);
+                    self.calculateZ(@truncate(value_w));
                     self.PS.PS_C = (value_w < 0x100);
 
                     if (self.PS.PS_D) {
@@ -1671,8 +1694,8 @@ pub const CPU6502 = struct {
                 0xF6 => { // INC aa,X
                     self.last_cycles = 6;
                     value = self.memoryReadZeroPageIndexedX() +% 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0xF7: ISC aa,X
@@ -1684,9 +1707,9 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedY();
                     value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
-                    self.PS.PS_N = ((value_w & 0x80) != 0);
-                    self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                    self.PS.PS_Z = (value_w == 0);
+                    self.calculateN(@truncate(value_w));
+                    self.calculateV(value, value_w);
+                    self.calculateZ(@truncate(value_w));
                     self.PS.PS_C = (value_w < 0x100);
 
                     if (self.PS.PS_D) {
@@ -1706,9 +1729,9 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedX();
                     value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
-                    self.PS.PS_N = ((value_w & 0x80) != 0);
-                    self.PS.PS_V = ((self.A ^ value_w) & 0x80) > 0 and ~((self.A ^ value) & 0x80) > 0;
-                    self.PS.PS_Z = (value_w == 0);
+                    self.calculateN(@truncate(value_w));
+                    self.calculateV(value, value_w);
+                    self.calculateZ(@truncate(value_w));
                     self.PS.PS_C = (value_w < 0x100);
 
                     if (self.PS.PS_D) {
@@ -1724,8 +1747,8 @@ pub const CPU6502 = struct {
                 0xFE => { // INC aaaa,X
                     self.last_cycles = 7;
                     value = self.memoryReadAbsoluteIndexedX() +% 1;
-                    self.PS.PS_N = ((value & 0x80) != 0);
-                    self.PS.PS_Z = (value == 0);
+                    self.calculateN(value);
+                    self.calculateZ(value);
                     self.memoryManager.writeLast(value);
                 },
                 // Illegal opcode 0xFF: ISC aaaa,X

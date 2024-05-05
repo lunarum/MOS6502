@@ -43,7 +43,7 @@ pub fn main() !void {
     var do_test = false;
     while (try iter.next()) |entry| {
         if (entry.kind == std.fs.File.Kind.file) {
-            if (do_test or std.mem.eql(u8, entry.name, "40.json")) {
+            if (do_test or std.mem.eql(u8, entry.name, "00.json")) {
                 do_test = true;
                 std.debug.print("\n******** File [{s}] ", .{entry.name});
 
