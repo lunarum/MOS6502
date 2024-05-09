@@ -495,6 +495,21 @@ pub const CPU6502 = struct {
         self.calculateZ(self.A);
     }
 
+    /// ROR: ROtate Right; right shift 1 bit of value_b, adding C flag on the left, 
+    /// taking 1 extra cycle.
+    /// Affects flags C (value_b bit 7), N & Z (based on returned result)
+    fn instructionROR(self: *CPU6502, value_b: byte) byte {
+        self.cycles += 1;
+        var value = value_b >> 1;
+        if (self.PS.C) {
+            value |= 0x80;
+        }
+        self.PS.C = ((value_b & 0x01) != 0);
+        self.calculateN(value);
+        self.calculateZ(value);
+        return value;
+    }
+
     pub fn run(self: *CPU6502) RunResult {
         var tmp_PS_C: bool = undefined;
         var opcode: byte = undefined;
@@ -896,14 +911,7 @@ pub const CPU6502 = struct {
                     self.instructionADC(self.memoryReadZeroPage());
                 },
                 0x66 => { // ROR aa
-                    self.last_cycles = 5;
-                    value = self.memoryReadZeroPage();
-                    tmp_PS_C = self.PS.C;
-                    self.PS.C = ((value & 0x01) != 0);
-                    value = (value >> 1) | (@as(byte, @as(byte, @intFromBool(tmp_PS_C))) << 7);
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memoryWriteLast(self.instructionROR(self.memoryReadZeroPage()));
                 },
                 // Illegal opcode 0x67: RRA aa
                 0x68 => { // PLA
@@ -916,12 +924,7 @@ pub const CPU6502 = struct {
                     self.instructionADC(self.memoryReadImmediate());
                 },
                 0x6A => { // ROR
-                    self.last_cycles = 2;
-                    tmp_PS_C = self.PS.C;
-                    self.PS.C = ((self.A & 0x01) != 0);
-                    self.A = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
-                    self.calculateN(self.A);
-                    self.calculateZ(self.A);
+                    self.A = self.instructionROR(self.A);
                 },
                 // Illegal opcode 0x6B: ARR #aa
                 0x6C => { // JMP (aaaa)
@@ -932,14 +935,7 @@ pub const CPU6502 = struct {
                     self.instructionADC(self.memoryReadAbsolute());
                 },
                 0x6E => { // ROR aaaa
-                    self.last_cycles = 6;
-                    value = self.memoryReadAbsolute();
-                    tmp_PS_C = self.PS.C;
-                    self.PS.C = ((value & 0x01) != 0);
-                    value = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memoryWriteLast(self.instructionROR(self.memoryReadAbsolute()));
                 },
                 // Illegal opcode 0x6F: RRA aaaa
                 0x70 => { // BVS aaaa
@@ -960,14 +956,7 @@ pub const CPU6502 = struct {
                     self.instructionADC(self.memoryReadZeroPageIndexedX());
                 },
                 0x76 => { // ROR aa,X
-                    self.last_cycles = 6;
-                    value = self.memoryReadZeroPageIndexedX();
-                    tmp_PS_C = self.PS.C;
-                    self.PS.C = ((value & 0x01) != 0);
-                    value = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memoryWriteLast(self.instructionROR(self.memoryReadZeroPageIndexedX()));
                 },
                 // Illegal opcode 0x77: RRA aa,X
                 0x78 => { // SEI
@@ -984,14 +973,7 @@ pub const CPU6502 = struct {
                     self.instructionADC(self.memoryReadAbsoluteIndexedX());
                 },
                 0x7E => { // ROR aaaa,X
-                    self.last_cycles = 7;
-                    value = self.memoryReadAbsoluteIndexedX();
-                    tmp_PS_C = self.PS.C;
-                    self.PS.C = ((value & 0x01) != 0);
-                    value = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memoryWriteLast(self.instructionROR(self.memoryReadAbsoluteIndexedX()));
                 },
                 // Illegal opcode 0x7F: RRA aaaa,X
                 // Illegal opcode 0x80: NOP #aa
