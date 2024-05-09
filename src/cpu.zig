@@ -73,19 +73,20 @@ pub const CPU6502 = struct {
         self.single_step = false;
     }
 
-    // self.calculateN(self.A);
-    // self.calculateZ(self.A);
-
+    /// The Negative flag indicate is the sign bit (bit 7) of value is set.
     pub inline fn calculateN(self: *CPU6502, value: byte) void {
         self.PS.PS_N = (value & 0x80) != 0;
     }
 
+    /// The oVerflow flag indicates if an overflow has occured.
+    /// For example, the specific test for ADC is: if the two input numbers have the same sign, and the result has a different sign, set overflow. Otherwise clear it.
+    /// https://stackoverflow.com/questions/66141379/arithmetic-overflow-for-different-signed-numbers-6502-assembly
+    /// v = ~(a^operand) & (a^result) & 0x80;
     pub inline fn calculateV(self: *CPU6502, operand: byte, result: word) void {
-        // https://stackoverflow.com/questions/66141379/arithmetic-overflow-for-different-signed-numbers-6502-assembly
-        // v = ~(a^operand) & (a^result) & 0x80;
         self.PS.PS_V = (~(self.A ^ operand) & (self.A ^ result) & 0x80) > 0;
     }
 
+    /// The Zero flag simply indicates if value is zero.
     pub inline fn calculateZ(self: *CPU6502, value: byte) void {
         self.PS.PS_Z = value == 0;
     }
@@ -307,7 +308,7 @@ pub const CPU6502 = struct {
 
     /// memoryReadIndexedIndirectX
     /// --------------------------
-    /// Reads the address (word) on the zero page, (address byte) pointed to by the PC and add register X to that (wrapping around), in little endian format.
+    /// Reads the address (word) on the zero page, (address byte) pointed to by the PC with register X added to that (wrapping around), in little endian format.
     ///
     /// For example, LDA ($34,X), where X contains 6 and memory on $3A containing $CD and on $3B containing $AB, results in loading the accumulator with the byte value at $ABCD.
     fn memoryReadIndexedIndirectX(self: *CPU6502) byte {
@@ -318,7 +319,7 @@ pub const CPU6502 = struct {
 
     /// memoryWriteIndexedIndirectX
     /// --------------------------
-    /// Writes the value (byte) to the address (word) found on the zero page at (address byte) pointed to by the PC and with register X added to that (wrapping around), in little endian format.
+    /// Writes the value (byte) to the address (word) found on the zero page at (address byte) pointed to by the PC with register X added to that (wrapping around), in little endian format.
     ///
     /// Only used by STA, so with STA ($34,X), where X contains 6 and memory on $3A containing $CD and on $3B containing $AB, results in writing the accumulator byte value to $ABCD.
     fn memoryWriteIndexedIndirectX(self: *CPU6502, value: byte) void {
@@ -363,6 +364,34 @@ pub const CPU6502 = struct {
         if ((address & 0xFF00) != (self.PC & 0xFF00)) // crossing the page boundary adds an extra cycle
             self.cycles += 1;
         return address;
+    }
+
+    /// ADC: ADd to A with Carry
+    /// Add value_b and C to A (16-bits), storing truncated 8 bits into A, honors D(ecimal)-flag while adding.
+    /// C = value_w > $0100
+    /// Z = A == 0
+    /// N = A bit 7
+    /// V => see calculateV()
+    fn instructionADC(self: *CPU6502, value_b: byte) void {
+        var value_w: word = @as(word, self.A) + @as(word, value_b) + @as(word, @intFromBool(self.PS.PS_C));
+        // Z flag is always calculated as in binary add, see http://www.6502.org/tutorials/decimal_mode.html#A
+        self.calculateZ(@truncate(value_w));
+        if (self.PS.PS_D) {
+            value_w = (self.A & 0x0F) + (value_b & 0x0F) + @as(byte, @intFromBool(self.PS.PS_C));
+            if (value_w >= 0x0A) // decimal carry on last digit add?
+                value_w = ((value_w + 0x06) & 0x0F) + 0x10;
+            value_w += (@as(word, self.A) & 0xF0) + (@as(word, value_b) & 0xF0);
+            self.calculateN(@truncate(value_w));
+            self.calculateV(value_b, value_w);
+            if (value_w >= 0xA0) // decimal carry on first digit add?
+                value_w += 0x60;
+            self.A = @truncate(value_w);
+        } else {
+            self.calculateV(value_b, value_w);
+            self.A = @truncate(value_w);
+            self.calculateN(self.A);
+        }
+        self.PS.PS_C = (value_w >= 0x100);
     }
 
     pub fn run(self: *CPU6502) RunResult {
@@ -817,63 +846,14 @@ pub const CPU6502 = struct {
                 },
                 0x61 => { // ADC (aa,X)
                     self.last_cycles = 6;
-                    value = self.memoryReadIndexedIndirectX();
-                    if (self.PS.PS_D) {
-                        value_w = (self.A & 0x0F) +% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
-                        if (value_w >= 0x0A)
-                            value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
-                        value_w +%= (self.A & 0xF0) +% (value & 0xF0);
-
-                        self.calculateN(@truncate(value_w));
-                        // https://stackoverflow.com/questions/66141379/arithmetic-overflow-for-different-signed-numbers-6502-assembly
-                        // v = ~(a^operand) & (a^result) & 0x80;
-                        self.PS.PS_V = (~(self.A ^ value) & (self.A ^ value_w) & 0x80) > 0;
-                        self.calculateZ(@truncate(value_w));
-
-                        if (value_w >= 0xA0)
-                            value_w +%= 0x60;
-                        self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    } else {
-                        value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.calculateN(@truncate(value_w));
-                        // https://stackoverflow.com/questions/66141379/arithmetic-overflow-for-different-signed-numbers-6502-assembly
-                        // v = ~(a^operand) & (a^result) & 0x80;
-                        self.PS.PS_V = (~(self.A ^ value) & (self.A ^ value_w) & 0x80) > 0;
-                        self.A = @truncate(value_w & 0xFF);
-                        self.calculateZ(self.A);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    }
+                    self.instructionADC(self.memoryReadIndexedIndirectX());
                 },
                 // Illegal opcode 0x62: KIL
                 // Illegal opcode 0x63: RRA (aa,X)
                 // Illegal opcode 0x64: NOP aa
                 0x65 => { // ADC aa
                     self.last_cycles = 3;
-                    value = self.memoryReadZeroPage();
-                    if (self.PS.PS_D) {
-                        value_w = (self.A & 0x0F) +% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
-                        if (value_w >= 0x0A)
-                            value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
-                        value_w +%= (self.A & 0xF0) +% (value & 0xF0);
-
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.calculateZ(@truncate(value_w));
-
-                        if (value_w >= 0xA0)
-                            value_w +%= 0x60;
-                        self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    } else {
-                        value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.calculateV(value, value_w);
-                        self.A = @truncate(value_w & 0xFF);
-                        self.calculateZ(self.A);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    }
+                    self.instructionADC(self.memoryReadZeroPage());
                 },
                 0x66 => { // ROR aa
                     self.last_cycles = 5;
@@ -894,29 +874,7 @@ pub const CPU6502 = struct {
                 },
                 0x69 => { // ADC #aa
                     self.last_cycles = 2;
-                    value = self.memoryReadImmediate();
-                    if (self.PS.PS_D) {
-                        value_w = (self.A & 0x0F) +% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
-                        if (value_w >= 0x0A)
-                            value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
-                        value_w +%= (self.A & 0xF0) +% (value & 0xF0);
-
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.calculateZ(@truncate(value_w));
-
-                        if (value_w >= 0xA0)
-                            value_w +%= 0x60;
-                        self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    } else {
-                        value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.A = @truncate(value_w & 0xFF);
-                        self.calculateZ(self.A);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    }
+                    self.instructionADC(self.memoryReadImmediate());
                 },
                 0x6A => { // ROR
                     self.last_cycles = 2;
@@ -933,29 +891,7 @@ pub const CPU6502 = struct {
                 },
                 0x6D => { // ADC aaaa
                     self.last_cycles = 4;
-                    value = self.memoryReadAbsolute();
-                    if (self.PS.PS_D) {
-                        value_w = (self.A & 0x0F) +% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
-                        if (value_w >= 0x0A)
-                            value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
-                        value_w +%= (self.A & 0xF0) +% (value & 0xF0);
-
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.calculateZ(@truncate(value_w));
-
-                        if (value_w >= 0xA0)
-                            value_w +%= 0x60;
-                        self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    } else {
-                        value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.A = @truncate(value_w & 0xFF);
-                        self.calculateZ(self.A);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    }
+                    self.instructionADC(self.memoryReadAbsolute());
                 },
                 0x6E => { // ROR aaaa
                     self.last_cycles = 6;
@@ -978,58 +914,14 @@ pub const CPU6502 = struct {
                 },
                 0x71 => { // ADC (aa),Y
                     self.last_cycles = 5;
-                    value = self.memoryReadIndirectIndexedY();
-                    if (self.PS.PS_D) {
-                        value_w = (self.A & 0x0F) +% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
-                        if (value_w >= 0x0A)
-                            value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
-                        value_w +%= (self.A & 0xF0) +% (value & 0xF0);
-
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.calculateZ(@truncate(value_w));
-
-                        if (value_w >= 0xA0)
-                            value_w +%= 0x60;
-                        self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    } else {
-                        value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.A = @truncate(value_w & 0xFF);
-                        self.calculateZ(self.A);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    }
+                    self.instructionADC(self.memoryReadIndirectIndexedY());
                 },
                 // Illegal opcode 0x72: KIL
                 // Illegal opcode 0x73: RRA (aa),Y
                 // Illegal opcode 0x74: NOP aa,X
                 0x75 => { // ADC aa,X
                     self.last_cycles = 4;
-                    value = self.memoryReadZeroPageIndexedX();
-                    if (self.PS.PS_D) {
-                        value_w = (self.A & 0x0F) +% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
-                        if (value_w >= 0x0A)
-                            value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
-                        value_w +%= (self.A & 0xF0) +% (value & 0xF0);
-
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.calculateZ(@truncate(value_w));
-
-                        if (value_w >= 0xA0)
-                            value_w +%= 0x60;
-                        self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    } else {
-                        value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.A = @truncate(value_w & 0xFF);
-                        self.calculateZ(self.A);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    }
+                    self.instructionADC(self.memoryReadZeroPageIndexedX());
                 },
                 0x76 => { // ROR aa,X
                     self.last_cycles = 6;
@@ -1048,58 +940,14 @@ pub const CPU6502 = struct {
                 },
                 0x79 => { // ADC aaaa,Y
                     self.last_cycles = 4;
-                    value = self.memoryReadAbsoluteIndexedY();
-                    if (self.PS.PS_D) {
-                        value_w = (self.A & 0x0F) +% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
-                        if (value_w >= 0x0A)
-                            value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
-                        value_w +%= (self.A & 0xF0) +% (value & 0xF0);
-
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.calculateZ(@truncate(value_w));
-
-                        if (value_w >= 0xA0)
-                            value_w +%= 0x60;
-                        self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    } else {
-                        value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.A = @truncate(value_w & 0xFF);
-                        self.calculateZ(self.A);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    }
+                    self.instructionADC(self.memoryReadAbsoluteIndexedY());
                 },
                 // Illegal opcode 0x7A: NOP
                 // Illegal opcode 0x7B: RRA aaaa,Y
                 // Illegal opcode 0x7C: NOP aaaa,X
                 0x7D => { // ADC aaaa,X
                     self.last_cycles = 4;
-                    value = self.memoryReadAbsoluteIndexedX();
-                    if (self.PS.PS_D) {
-                        value_w = (self.A & 0x0F) +% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
-                        if (value_w >= 0x0A)
-                            value_w = ((value_w +% 0x06) & 0x0F) +% 0x10;
-                        value_w +%= (self.A & 0xF0) +% (value & 0xF0);
-
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.calculateZ(@truncate(value_w));
-
-                        if (value_w >= 0xA0)
-                            value_w +%= 0x60;
-                        self.A = @truncate(value_w & 0xFF);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    } else {
-                        value_w = self.A +% value +% @as(byte, @intFromBool(self.PS.PS_C));
-                        self.calculateN(@truncate(value_w));
-                        self.calculateV(value, value_w);
-                        self.A = @truncate(value_w & 0xFF);
-                        self.calculateZ(self.A);
-                        self.PS.PS_C = (value_w >= 0x100);
-                    }
+                    self.instructionADC(self.memoryReadAbsoluteIndexedX());
                 },
                 0x7E => { // ROR aaaa,X
                     self.last_cycles = 7;

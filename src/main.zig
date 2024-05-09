@@ -58,7 +58,7 @@ pub fn main() !void {
                         std.debug.print("{s} ", .{entry.name});
                     continue;
                 };
-                if (errors >= 8) {
+                if (errors >= 1) {
                     // the whole implementation propably has some serious problems; no need to test any further
                     std.debug.print("\n******** To many errors, aborting ********\n", .{});
                     break;
@@ -149,7 +149,7 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
                 }
             }
             errors += 1;
-            if (errors >= 8) {
+            if (errors >= 1) {
                 // implementation is propably wrong; no need to test any further
                 std.debug.print("\n******** To many errors in this opcode, skipping the rest ********", .{});
                 break;
