@@ -288,7 +288,7 @@ pub const CPU6502 = struct {
     /// Reads the address (word) pointed to by the PC and then uses that as a pointer
     /// in memory to the returned address (again in little endian format), taking 5 cycles
     ///
-    /// Due to a bug in the 6502, when the low (first) byte of the pointer address is 0xFF, 
+    /// Due to a bug in the 6502, when the low (first) byte of the pointer address is 0xFF,
     /// the next (high) byte to be read is read from 0x00 on the same page as the pointer address.
     /// e.g. when the pointer address is $04FF, the low address byte is read from $04FF,
     /// but the high byte is read from $0400 instead of the expected $0500!
@@ -438,12 +438,13 @@ pub const CPU6502 = struct {
     /// -------------------------
     /// Write to the last address read from, taking 1 cycle.
     fn memoryWriteLast(self: *CPU6502, value_b: byte) void {
-       self.memoryManager.writeLast(value_b);
+        self.memoryManager.writeLast(value_b);
         self.last_cycles += 1;
     }
 
     /// ADC: ADd to A with Carry
     /// Add value_b and C to A (16-bits), storing truncated 8 bits into A.
+    /// 
     /// Dependent on flags D & C and affects flags C, N, V & Z
     fn instructionADC(self: *CPU6502, value_b: byte) void {
         var value_w: word = @as(word, self.A) + @as(word, value_b) + @as(word, @intFromBool(self.PS.C));
@@ -467,9 +468,10 @@ pub const CPU6502 = struct {
         self.PS.C = (value_w >= 0x100);
     }
 
-    /// ASL: Arithmetic Shift Left; left shift 1 bit of value_b, adding 0 on the right, 
+    /// ASL: Arithmetic Shift Left; left shift 1 bit of value_b, adding 0 on the right,
     /// taking 1 extra cycle.
-    /// Affects flags C (value_b bit 7), N & Z (based on returned result)
+    /// 
+    /// Affects flags C (value_b bit 7), N & Z (based on returned result).
     fn instructionASL(self: *CPU6502, value_b: byte) byte {
         self.cycles += 1;
         self.PS.C = ((value_b & 0x80) != 0);
@@ -479,25 +481,58 @@ pub const CPU6502 = struct {
         return value;
     }
 
-    /// ORA: OR value_b with A;
-    /// affects flags N & Z
-    fn instructionORA(self: *CPU6502, value_b: byte) void {
-        self.A |= value_b;
-        self.calculateN(self.A);
-        self.calculateZ(self.A);
+    /// CMP: CoMPare A; sets flags based on comparing (substracting) value_b and (from) A.
+    /// 
+    /// Affects flags C (A >= value_b), N (A < value_b) & Z (A == value_b).
+    fn instructionCMP(self: *CPU6502, value_b: byte) void {
+        const value = self.A -% value_b;
+        self.calculateN(value);
+        self.calculateZ(value);
+        self.PS.C = self.A >= value_b;
+    }
+    
+    /// CPX: ComPare X; sets flags based on comparing (substracting) value_b and (from) X.
+    /// 
+    /// Affects flags C (X >= value_b), N (X < value_b) & Z (X == value_b).
+    fn instructionCPX(self: *CPU6502, value_b: byte) void {
+        const value = self.X -% value_b;
+        self.calculateN(value);
+        self.calculateZ(value);
+        self.PS.C = self.X >= value_b;
+    }
+
+    /// CPY: ComPare Y; sets flags based on comparing (substracting) value_b and (from) Y.
+    /// 
+    /// Affects flags C (Y >= value_b), N (Y < value_b) & Z (Y == value_b).
+    fn instructionCPY(self: *CPU6502, value_b: byte) void {
+        const value = self.Y -% value_b;
+        self.calculateN(value);
+        self.calculateZ(value);
+        self.PS.C = self.Y >= value_b;
     }
 
     /// EOR: Exclusive OR value_b with A
-    /// Affects flags N & Z
+    /// 
+    /// Affects flags N & Z.
     fn instructionEOR(self: *CPU6502, value_b: byte) void {
         self.A ^= value_b;
         self.calculateN(self.A);
         self.calculateZ(self.A);
     }
 
-    /// ROR: ROtate Right; right shift 1 bit of value_b, adding C flag on the left, 
+    /// ORA: OR value_b with A
+    /// 
+    /// Affects flags N & Z.
+    fn instructionORA(self: *CPU6502, value_b: byte) void {
+        self.A |= value_b;
+        self.calculateN(self.A);
+        self.calculateZ(self.A);
+    }
+
+    /// ROR: ROtate Right; right shift 1 bit of value_b, adding C flag on the left,
     /// taking 1 extra cycle.
-    /// Affects flags C (value_b bit 7), N & Z (based on returned result)
+    /// 
+    /// Affects flags C (value_b bit 7), N & Z (based on returned result).
     fn instructionROR(self: *CPU6502, value_b: byte) byte {
         self.cycles += 1;
         var value = value_b >> 1;
@@ -1220,38 +1255,18 @@ pub const CPU6502 = struct {
                 },
                 // Illegal opcode 0xBF: LAX aaaa,Y
                 0xC0 => { // CPY #aa
-                    self.last_cycles = 2;
-                    value = self.memoryReadImmediate();
-                    value = self.Y -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCPY(self.memoryReadImmediate());
                 },
                 0xC1 => { // CMP (aa,X)
-                    self.last_cycles = 6;
-                    value = self.memoryReadIndexedIndirectX();
-                    value = self.A -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCMP(self.memoryReadIndexedIndirectX());
                 },
                 // Illegal opcode 0xC2: NOP #aa
                 // Illegal opcode 0xC3: DCP (aa,X)
                 0xC4 => { // CPY aa
-                    self.last_cycles = 3;
-                    value = self.memoryReadZeroPage();
-                    value = self.Y -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCPY(self.memoryReadZeroPage());
                 },
                 0xC5 => { // CMP aa
-                    self.last_cycles = 3;
-                    value = self.memoryReadZeroPage();
-                    value = self.A -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCMP(self.memoryReadZeroPage());
                 },
                 0xC6 => { // DEC aa
                     self.last_cycles = 5;
@@ -1269,12 +1284,7 @@ pub const CPU6502 = struct {
                     self.calculateZ(self.Y);
                 },
                 0xC9 => { // CMP #aa
-                    self.last_cycles = 2;
-                    value = self.memoryReadImmediate();
-                    value = self.A -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCMP(self.memoryReadImmediate());
                 },
                 0xCA => { // DEX
                     self.last_cycles = 2;
@@ -1284,20 +1294,10 @@ pub const CPU6502 = struct {
                 },
                 // Illegal opcode 0xCB: AXS #aa
                 0xCC => { // CPY aaaa
-                    self.last_cycles = 4;
-                    value = self.memoryReadAbsolute();
-                    value = self.Y -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCPY(self.memoryReadAbsolute());
                 },
                 0xCD => { // CMP aaaa
-                    self.last_cycles = 4;
-                    value = self.memoryReadAbsolute();
-                    value = self.A -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCMP(self.memoryReadAbsolute());
                 },
                 0xCE => { // DEC aaaa
                     self.last_cycles = 6;
@@ -1317,23 +1317,13 @@ pub const CPU6502 = struct {
                     }
                 },
                 0xD1 => { // CMP (aa),Y
-                    self.last_cycles = 5;
-                    value = self.memoryReadIndirectIndexedY();
-                    value = self.A -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCMP(self.memoryReadIndirectIndexedY());
                 },
                 // Illegal opcode 0xD2: KIL
                 // Illegal opcode 0xD3: DCP (aa),Y
                 // Illegal opcode 0xD4: NOP aa,X
                 0xD5 => { // CMP aa,X
-                    self.last_cycles = 4;
-                    value = self.memoryReadZeroPageIndexedX();
-                    value = self.A -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCMP(self.memoryReadZeroPageIndexedX());
                 },
                 0xD6 => { // DEC aa,X
                     self.last_cycles = 6;
@@ -1349,23 +1339,13 @@ pub const CPU6502 = struct {
                     self.PS.D = false;
                 },
                 0xD9 => { // CMP aaaa,Y
-                    self.last_cycles = 4;
-                    value = self.memoryReadAbsoluteIndexedY();
-                    value = self.A -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCMP(self.memoryReadAbsoluteIndexedY());
                 },
                 // Illegal opcode 0xDA: NOP
                 // Illegal opcode 0xDB: DCP aaaa,Y
                 // Illegal opcode 0xDC: NOP aaaa,X
                 0xDD => { // CMP aaaa,X
-                    self.last_cycles = 4;
-                    value = self.memoryReadAbsoluteIndexedX();
-                    value = self.A -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCMP(self.memoryReadAbsoluteIndexedX());
                 },
                 0xDE => { // DEC aaaa,X
                     self.last_cycles = 7;
@@ -1377,12 +1357,7 @@ pub const CPU6502 = struct {
                 },
                 // Illegal opcode 0xDF: DCP aaaa,X
                 0xE0 => { // CPX #aa
-                    self.last_cycles = 2;
-                    value = self.memoryReadImmediate();
-                    value = self.X -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCPX(self.memoryReadImmediate());
                 },
                 0xE1 => { // SBC (aa,X)
                     self.last_cycles = 6;
@@ -1406,12 +1381,7 @@ pub const CPU6502 = struct {
                 // Illegal opcode 0xE2: NOP #aa
                 // Illegal opcode 0xE3: ISC (aa,X)
                 0xE4 => { // CPX aa
-                    self.last_cycles = 3;
-                    value = self.memoryReadZeroPage();
-                    value = self.X -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCPX(self.memoryReadZeroPage());
                 },
                 0xE5 => { // SBC aa
                     self.last_cycles = 3;
@@ -1472,12 +1442,7 @@ pub const CPU6502 = struct {
                 },
                 // Illegal opcode 0xEB: SBC #aa
                 0xEC => { // CPX aaaa
-                    self.last_cycles = 4;
-                    value = self.memoryReadAbsolute();
-                    value = self.X -% value;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.PS.C = !self.PS.N;
+                    self.instructionCPX(self.memoryReadAbsolute());
                 },
                 0xED => { // SBC aaaa
                     self.last_cycles = 4;

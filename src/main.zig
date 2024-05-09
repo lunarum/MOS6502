@@ -109,10 +109,11 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
 
     var errors: u32 = 0;
     const entries = parsed.value;
-    for (entries) |entry| {
+    for (entries, 0..) |entry, line| {
         const ok = try executeTest(&cpu6502, entry);
         if (!ok) {
-            std.debug.print("\nERROR in test {s:8}: PC{x:4},SP{x:2},A{x:2},X{x:2},Y{x:2},", .{
+            std.debug.print("\nERROR in test {d:5} '{s:8}': PC{x:4},SP{x:2},A{x:2},X{x:2},Y{x:2},", .{
+                line+1,
                 entry.name,
                 entry.initial.pc,
                 entry.initial.s,
