@@ -43,7 +43,7 @@ pub fn main() !void {
     var do_test = false;
     while (try iter.next()) |entry| {
         if (entry.kind == std.fs.File.Kind.file) {
-            if (do_test or std.mem.eql(u8, entry.name, "00.json")) {
+            if (do_test or std.mem.eql(u8, entry.name, "00.json")) {    
                 do_test = true;
                 std.debug.print("\n******** File [{s}] ", .{entry.name});
 
@@ -71,14 +71,14 @@ pub fn main() !void {
 fn printFlags(flags: CPU.Flags) void {
     const f: Memory.byte = @bitCast(flags);
     std.debug.print("{x:2}:", .{f});
-    if (flags.PS_C) std.debug.print("C", .{}) else std.debug.print("c", .{}); // Carry
-    if (flags.PS_Z) std.debug.print("Z", .{}) else std.debug.print("z", .{}); // Zero
-    if (flags.PS_I) std.debug.print("I", .{}) else std.debug.print("i", .{}); // IRQ disable
-    if (flags.PS_D) std.debug.print("D", .{}) else std.debug.print("d", .{}); // Decimal mode
-    if (flags.PS_B) std.debug.print("B", .{}) else std.debug.print("b", .{}); // (in) Break command
-    if (flags.PS_1) std.debug.print("1", .{}) else std.debug.print("0", .{}); // not used
-    if (flags.PS_V) std.debug.print("V", .{}) else std.debug.print("v", .{}); // oVerflow
-    if (flags.PS_N) std.debug.print("N", .{}) else std.debug.print("n", .{}); // Negative
+    if (flags.C) std.debug.print("C", .{}) else std.debug.print("c", .{}); // Carry
+    if (flags.Z) std.debug.print("Z", .{}) else std.debug.print("z", .{}); // Zero
+    if (flags.I) std.debug.print("I", .{}) else std.debug.print("i", .{}); // IRQ disable
+    if (flags.D) std.debug.print("D", .{}) else std.debug.print("d", .{}); // Decimal mode
+    if (flags.B) std.debug.print("B", .{}) else std.debug.print("b", .{}); // (in) Break command
+    if (flags.R) std.debug.print("1", .{}) else std.debug.print("0", .{}); // not used
+    if (flags.V) std.debug.print("V", .{}) else std.debug.print("v", .{}); // oVerflow
+    if (flags.N) std.debug.print("N", .{}) else std.debug.print("n", .{}); // Negative
 }
 
 fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {

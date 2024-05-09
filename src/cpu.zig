@@ -28,14 +28,22 @@ pub const RunResult = enum {
 
 /// Processor Status flags: Carry, Zero, Irq disable, Decimal mode, Break mode, oVerflow and Negative
 pub const Flags = packed struct(byte) {
-    PS_C: bool = false, // Carry
-    PS_Z: bool = false, // Zero
-    PS_I: bool = false, // IRQ disable
-    PS_D: bool = false, // Decimal mode
-    PS_B: bool = false, // not a real register value; always false, but may be pushed to the stack as a true by BRK
-    PS_1: bool = true, // reserved and not a real register value; always 1
-    PS_V: bool = false, // oVerflow
-    PS_N: bool = false, // Negative
+    /// Carry flag
+    C: bool = false,
+    /// Zero flag
+    Z: bool = false,
+    /// IRQ disable flag
+    I: bool = false,
+    /// Decimal mode flag
+    D: bool = false,
+    /// not a real register value; always false, but may be pushed to the stack as a true by BRK
+    B: bool = false,
+    /// reserved and not a real register value; always 1
+    R: bool = true,
+    /// oVerflow flag
+    V: bool = false,
+    /// Negative flag
+    N: bool = false,
 };
 
 /// The 6502 processor with registers Accumulator, X and Y index registers, Stack Pointer, Program Counter and Processor Status register
@@ -45,16 +53,25 @@ pub const Flags = packed struct(byte) {
 /// All access modes are implemented in separate (private) functions, as is the function to run / continue execution.
 /// When newly initialised, the cpu starts from the normal address which is stored at MEM_RESET, else it continues from current PC address.
 pub const CPU6502 = struct {
-    A: byte = 0, // Accumulator
-    X: byte = 0, // X index register
-    Y: byte = 0, // Y idex register
-    SP: byte = 0, // Stack Pointer
-    PC: word = MEM_RESET, // Program Counter
-    PS: Flags = Flags{}, // Processor Status
+    /// Accumulator
+    A: byte = 0,
+    /// X index register
+    X: byte = 0,
+    /// Y index register
+    Y: byte = 0,
+    /// Stack Pointer
+    SP: byte = 0,
+    /// Program Counter
+    PC: word = MEM_RESET,
+    /// Processor Status flags
+    PS: Flags = Flags{},
 
-    last_cycles: byte = 0, // #cycles of last executed instruction
-    cycles: i128 = 0, // instruction cycles spent after start (overflows)
-    single_step: bool = false, // single step modus
+    /// #cycles of last executed instruction
+    last_cycles: byte = 0,
+    /// instruction cycles spent after start (overflows)
+    cycles: i128 = 0,
+    /// single step modus
+    single_step: bool = false,
 
     memoryManager: *Memory.Memory = undefined,
 
@@ -64,8 +81,8 @@ pub const CPU6502 = struct {
     }
 
     pub fn reset(self: *CPU6502) void {
-        self.PS.PS_I = true;
-        self.PS.PS_D = false;
+        self.PS.I = true;
+        self.PS.D = false;
         self.SP = 0xFF;
         self.PC = self.memoryReadAddress(MEM_RESET);
         self.last_cycles = 0;
@@ -75,7 +92,7 @@ pub const CPU6502 = struct {
 
     /// The Negative flag indicate is the sign bit (bit 7) of value is set.
     pub inline fn calculateN(self: *CPU6502, value: byte) void {
-        self.PS.PS_N = (value & 0x80) != 0;
+        self.PS.N = (value & 0x80) != 0;
     }
 
     /// The oVerflow flag indicates if an overflow has occured.
@@ -83,12 +100,12 @@ pub const CPU6502 = struct {
     /// https://stackoverflow.com/questions/66141379/arithmetic-overflow-for-different-signed-numbers-6502-assembly
     /// v = ~(a^operand) & (a^result) & 0x80;
     pub inline fn calculateV(self: *CPU6502, operand: byte, result: word) void {
-        self.PS.PS_V = (~(self.A ^ operand) & (self.A ^ result) & 0x80) > 0;
+        self.PS.V = (~(self.A ^ operand) & (self.A ^ result) & 0x80) > 0;
     }
 
     /// The Zero flag simply indicates if value is zero.
     pub inline fn calculateZ(self: *CPU6502, value: byte) void {
-        self.PS.PS_Z = value == 0;
+        self.PS.Z = value == 0;
     }
 
     /// memoryReadAddress
@@ -139,123 +156,142 @@ pub const CPU6502 = struct {
 
     /// memoryReadImmediate
     /// -------------------
-    /// The byte value read is the byte at the memory location pointed to by the PC.
+    /// The byte value read is the byte at the memory location pointed to by the PC, taking 1 cycle.
     ///
     /// For example, LDA #$1A loads the value $1A into the accumulator.
     pub fn memoryReadImmediate(self: *CPU6502) byte {
         const value = self.memoryManager.read(self.PC);
         self.PC +%= 1;
+        self.last_cycles += 1;
         return value;
     }
 
     /// memoryReadAbsolute
     /// ------------------
-    /// The byte value read is the byte stored at the memory location pointed to by the PC.
+    /// The byte value read is the byte stored at the memory location pointed to by the PC,
+    /// taking 3 cycles.
     ///
     /// For example, LDA $1234 reads the value in memory location $1234 and stores it into the accumulator.
     pub fn memoryReadAbsolute(self: *CPU6502) byte {
+        self.last_cycles += 3;
         return self.memoryManager.read(getAddress(self.memoryReadImmediate(), self.memoryReadImmediate()));
     }
 
     /// memoryReadAbsoluteAddress
     /// -------------------------
-    /// The address (word) read is the address stored at the memory location pointed to by the PC.
+    /// The address (word) read is the address stored at the memory location pointed to by the PC,
+    /// taking 3 cycles
     ///
     /// For example, JMP $1A2B loads the address $1A2B into the PC (jumps to).
     fn memoryReadAbsoluteAddress(self: *CPU6502) word {
+        self.last_cycles += 3;
         return getAddress(self.memoryReadImmediate(), self.memoryReadImmediate());
     }
 
     /// memoryWriteAbsolute
     /// -------------------
-    /// The byte value which is written at the memory location location pointed to by the PC.
+    /// The byte value which is written at the memory location location pointed to by the PC,
+    /// taking 3 cycles
     ///
     /// For example, STA $1A2B stores the present value of the accumulator in memory location $1A2B.
     pub fn memoryWriteAbsolute(self: *CPU6502, value: byte) void {
+        self.last_cycles += 3;
         self.memoryManager.write(getAddress(self.memoryReadImmediate(), self.memoryReadImmediate()), value);
     }
 
     /// memoryReadZeroPage
     /// ------------------
-    /// The byte value read is the byte stored at the zero page memory location (the LSB byte value, because the MSB is assumed $00) pointed to by the PC.
+    /// The byte value read is the byte stored at the zero page memory location (the LSB byte value,
+    /// because the MSB is assumed $00) pointed to by the PC, taking 2 cycles
     ///
     /// For example, LDA $34 reads the value in memory location $0034 and stores it into the accumulator.
     fn memoryReadZeroPage(self: *CPU6502) byte {
+        self.last_cycles += 2;
         return self.memoryManager.readZero(self.memoryReadImmediate());
     }
 
     /// memoryWriteZeroPage
     /// -------------------
-    /// The byte value written is stored at the zero page memory location (the LSB byte value, because the MSB is assumed $00) pointed to by the PC.
+    /// The byte value written is stored at the zero page memory location (the LSB byte value,
+    /// because the MSB is assumed $00) pointed to by the PC, taking 2 cycles
     ///
     /// For example, STA $34 stores the present value of the accumulator in memory location $0034.
     fn memoryWriteZeroPage(self: *CPU6502, value: byte) void {
+        self.last_cycles += 2;
         self.memoryManager.writeZero(self.memoryReadImmediate(), value);
     }
 
     /// memoryReadAbsoluteIndexedX
     /// --------------------------
-    /// The byte value read is the byte stored at the memory location pointed to by the PC with the X register added.
+    /// The byte value read is the byte stored at the memory location pointed to by the PC
+    /// with the X register added, taking 3 or 4 cycles
     ///
-    /// For example, LDA $1234, X with the X register containing $06 reads the value in memory location $123A and stores it into the accumulator.
+    /// For example, LDA $1234, X with the X register containing $06 reads the value in
+    ///  memory location $123A and stores it into the accumulator.
     fn memoryReadAbsoluteIndexedX(self: *CPU6502) byte {
         const lowByte = self.memoryReadImmediate();
         const highByte = self.memoryReadImmediate();
         const address = getAddress(lowByte, highByte) +% self.X;
-        if (highByte != address >> 8) // crossing a page boundary adds an extra cycle
-            self.last_cycles += 1;
+        // crossing a page boundary adds an extra cycle
+        self.last_cycles += if (highByte != address >> 8) 4 else 3;
         return self.memoryManager.read(address);
     }
 
     /// memoryReadAbsoluteIndexedY
     /// --------------------------
-    /// The byte value read is the byte stored at the memory location pointed to by the PC with the Y register added.
+    /// The byte value read is the byte stored at the memory location pointed to by the PC
+    /// with the Y register added, taking 3 or 4 cycles
     ///
-    /// For example, LDA $1234, Y with the Y register containing $06 reads the value in memory location $123A and stores it into the accumulator.
+    /// For example, LDA $1234, Y with the Y register containing $06 reads the value in
+    /// memory location $123A and stores it into the accumulator.
     fn memoryReadAbsoluteIndexedY(self: *CPU6502) byte {
         const lowByte = self.memoryReadImmediate();
         const highByte = self.memoryReadImmediate();
         const address = getAddress(lowByte, highByte) +% self.Y;
-        if (highByte != address >> 8) // crossing a page boundary adds an extra cycle
-            self.last_cycles += 1;
+        // crossing a page boundary adds an extra cycle
+        self.last_cycles += if (highByte != address >> 8) 4 else 3;
         return self.memoryManager.read(address);
     }
 
     /// memoryWriteAbsoluteIndexedX
     /// --------------------------
-    /// The byte value written is stored at the memory location pointed to by the PC with the X register added.
+    /// The byte value written is stored at the memory location pointed to by the PC
+    /// with the X register added, taking 4 cycles
     ///
-    /// For example, STA $1234, X with the X register containing $06 writes the accumulator to memory location $123A.
+    /// For example, STA $1234, X with the X register containing $06 writes the accumulator
+    /// to memory location $123A.
     fn memoryWriteAbsoluteIndexedX(self: *CPU6502, value: byte) void {
         const lowByte = self.memoryReadImmediate();
         const highByte = self.memoryReadImmediate();
         const address = getAddress(lowByte, highByte) +% self.X;
-        if (highByte != address >> 8) // crossing a page boundary adds an extra cycle
-            self.last_cycles += 1;
+        self.last_cycles += 4;
         self.memoryManager.write(address, value);
     }
 
     /// memoryWriteAbsoluteIndexedY
     /// --------------------------
-    /// The byte value written is stored at the memory location pointed to by the PC with the Y register added.
+    /// The byte value written is stored at the memory location pointed to by the PC
+    /// with the Y register added, taking 4 cycles
     ///
-    /// For example, STA $1234, Y with the Y register containing $06 writes the accumulator to memory location $123A.
+    /// For example, STA $1234, Y with the Y register containing $06 writes the accumulator
+    /// to memory location $123A.
     fn memoryWriteAbsoluteIndexedY(self: *CPU6502, value: byte) void {
         const lowByte = self.memoryReadImmediate();
         const highByte = self.memoryReadImmediate();
         const address = getAddress(lowByte, highByte) +% self.X;
-        if (highByte != address >> 8) // crossing a page boundary adds an extra cycle
-            self.last_cycles += 1;
+        self.last_cycles += 4;
         self.memoryManager.write(address, value);
     }
 
     /// memoryReadIndirectAbsoluteAddress
     /// ---------------------------------
-    /// Reads the address (word) pointed to by the PC and then uses that as a pointer in memory to the returned address (again in little endian format).
+    /// Reads the address (word) pointed to by the PC and then uses that as a pointer
+    /// in memory to the returned address (again in little endian format), taking 5 cycles
     ///
-    /// Due to a bug in the 6502, when the low (first) byte in memory of the address to be returned is 0xFF, the next (high) byte is read still is
-    /// from adress 0x00, but on the same page e.g. when the address is $04FF is used (as the addres of the low address byte) the high byte is read from
-    /// $0400 instead of the expected $0500!
+    /// Due to a bug in the 6502, when the low (first) byte in memory of the address
+    /// to be returned is 0xFF, the next (high) byte is read still is from adress 0x00,
+    /// but on the same page e.g. when the address is $04FF is used (as the addres of
+    /// the low address byte) the high byte is read from $0400 instead of the expected $0500!
     ///
     /// Only JMP uses this addressing mode, so e.g. JMP ($1234), with memory $1234 containing $CD and $1235 containing $AB, jumps to $ABCD.
     fn memoryReadIndirectAbsoluteAddress(self: *CPU6502) word {
@@ -263,121 +299,158 @@ pub const CPU6502 = struct {
         const lowByte = self.memoryManager.read(address);
         // 6502 bug: fetching the full address doesn't cross a page boundary but wraps around on the same page
         const highByte = self.memoryManager.read(if (lowByte == 0xFF) address & 0xFF00 else address + 1);
+        self.last_cycles += 5;
         return getAddress(lowByte, highByte);
     }
 
     /// memoryReadZeroPageIndexedX
     /// --------------------------
-    /// The byte value read is read from the zero page memory location (the LSB byte value, because the MSB is assumed $00) pointed to by the PC
-    /// with index register X added with overflow (i.e. without leaving the zero page).
+    /// The byte value read is read from the zero page memory location (the LSB byte value,
+    /// because the MSB is assumed $00) pointed to by the PC with index register X added
+    /// with overflow (i.e. without leaving the zero page), taking 3 cycles.
     ///
-    /// For example, LDA $34, X, when X contains $F0 reads the byte value in memory location $0024 ($34 + $F0 = $0124 => $0024) into the accumulator.
+    /// For example, LDA $34, X, when X contains $F0 reads the byte value in memory location
+    /// $0024 ($34 + $F0 = $0124 => $0024) into the accumulator.
     fn memoryReadZeroPageIndexedX(self: *CPU6502) byte {
+        self.last_cycles += 3;
         return self.memoryManager.readZero(self.memoryReadImmediate() +% self.X);
     }
 
     /// memoryReadZeroPageIndexedY
     /// --------------------------
-    /// The byte value read is read from the zero page memory location (the LSB byte value, because the MSB is assumed $00) pointed to by the PC
-    /// with index register Y added with overflow (i.e. without leaving the zero page).
+    /// The byte value read is read from the zero page memory location (the LSB byte value,
+    /// because the MSB is assumed $00) pointed to by the PC with index register Y added
+    /// with overflow (i.e. without leaving the zero page), taking 3 cycles.
     ///
-    /// For example, LDA $34, Y, when Y contains $F0 reads the byte value in memory location $0024 ($34 + $F0 = $0124 => $0024) into the accumulator.
+    /// For example, LDA $34, Y, when Y contains $F0 reads the byte value in memory location
+    /// $0024 ($34 + $F0 = $0124 => $0024) into the accumulator.
     fn memoryReadZeroPageIndexedY(self: *CPU6502) byte {
+        self.last_cycles += 3;
         return self.memoryManager.readZero(self.memoryReadImmediate() +% self.Y);
     }
 
     /// memoryWriteZeroPageIndexedX
     /// ---------------------------
-    /// The byte value written is stored at the zero page memory location (the LSB byte value, because the MSB is assumed $00) pointed to by the PC
-    /// with index register X added with overflow (i.e. without leaving the zero page).
+    /// The byte value written is stored at the zero page memory location (the LSB byte value,
+    /// because the MSB is assumed $00) pointed to by the PC with index register X added
+    /// with overflow (i.e. without leaving the zero page), taking 3 cycles.
     ///
-    /// For example, STA $34, X, when X contains $F0 stores the present value of the accumulator in memory location $0024 ($34 + $F0 = $0124 => $0024).
+    /// For example, STA $34, X, when X contains $F0 stores the present value of the accumulator
+    /// in memory location $0024 ($34 + $F0 = $0124 => $0024).
     fn memoryWriteZeroPageIndexedX(self: *CPU6502, value: byte) void {
+        self.last_cycles += 3;
         self.memoryManager.writeZero(self.memoryReadImmediate() +% self.X, value);
     }
 
     /// memoryWriteZeroPageIndexedY
     /// ---------------------------
-    /// The byte value written is stored at the zero page memory location (the LSB byte value, because the MSB is assumed $00) pointed to by the PC
-    /// with index register Y added with overflow (i.e. without leaving the zero page).
+    /// The byte value written is stored at the zero page memory location (the LSB byte value,
+    /// because the MSB is assumed $00) pointed to by the PC with index register Y added
+    /// with overflow (i.e. without leaving the zero page), taking 3 cycles.
     ///
     /// For example, STA $34, Y, when Y contains $F0 stores the present value of the accumulator in memory location $0024 ($34 + $F0 = $0124 => $0024).
     fn memoryWriteZeroPageIndexedY(self: *CPU6502, value: byte) void {
+        self.last_cycles += 3;
         self.memoryManager.writeZero(self.memoryReadImmediate() +% self.Y, value);
     }
 
     /// memoryReadIndexedIndirectX
     /// --------------------------
-    /// Reads the address (word) on the zero page, (address byte) pointed to by the PC with register X added to that (wrapping around), in little endian format.
+    /// Reads the address (word) on the zero page, (address byte) pointed to by the PC with
+    /// register X added to that (wrapping around), in little endian format, taking 5 cycles.
     ///
-    /// For example, LDA ($34,X), where X contains 6 and memory on $3A containing $CD and on $3B containing $AB, results in loading the accumulator with the byte value at $ABCD.
+    /// For example, LDA ($34,X), where X contains 6 and memory on $3A containing $CD and on
+    /// $3B containing $AB, results in loading the accumulator with the byte value at $ABCD.
     fn memoryReadIndexedIndirectX(self: *CPU6502) byte {
         const addressZ: byte = self.memoryReadImmediate() +% self.X;
         const address = getAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1));
+        self.last_cycles += 5;
         return self.memoryManager.read(address);
     }
 
     /// memoryWriteIndexedIndirectX
     /// --------------------------
-    /// Writes the value (byte) to the address (word) found on the zero page at (address byte) pointed to by the PC with register X added to that (wrapping around), in little endian format.
+    /// Writes the value (byte) to the address (word) found on the zero page at (address byte)
+    /// pointed to by the PC with register X added to that (wrapping around), in little endian
+    /// format, taking 5 cycles.
     ///
-    /// Only used by STA, so with STA ($34,X), where X contains 6 and memory on $3A containing $CD and on $3B containing $AB, results in writing the accumulator byte value to $ABCD.
+    /// Only used by STA, so with STA ($34,X), where X contains 6 and memory on $3A containing
+    /// $CD and on $3B containing $AB, results in writing the accumulator byte value to $ABCD.
     fn memoryWriteIndexedIndirectX(self: *CPU6502, value: byte) void {
         const addressZ: byte = self.memoryReadImmediate() +% self.X;
         const address = getAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1));
+        self.last_cycles += 5;
         self.memoryManager.write(address, value);
     }
 
     /// memoryReadIndirectIndexedY
     /// --------------------------
-    /// Reads the address (word) on the zero page, (address byte) pointed to by the PC in little endian format with the register Y added to that found address (wrapping around).
+    /// Reads the address (word) on the zero page, (address byte) pointed to by the PC in little
+    /// endian format with the register Y added to that found address (wrapping around), taking
+    /// 4 or 5 cycles.
     ///
-    /// For example, LDA ($34),Y, where Y contains 6 and memory on $34 containing $C7 and on $35 containing $AB, results in loading the accumulator with the byte value at $ABCD.
+    /// For example, LDA ($34),Y, where Y contains 6 and memory on $34 containing $C7 and on $35
+    /// containing $AB, results in loading the accumulator with the byte value at $ABCD.
     fn memoryReadIndirectIndexedY(self: *CPU6502) byte {
         const addressZ: byte = self.memoryReadImmediate();
-        const address = getAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1)) +% self.Y;
+        const highByte = self.memoryManager.readZero(addressZ +% 1);
+        const address = getAddress(self.memoryManager.readZero(addressZ), highByte) +% self.Y;
+        // crossing a page boundary adds an extra cycle
+        self.last_cycles += if (highByte != address >> 8) 5 else 4;
         return self.memoryManager.read(address);
     }
 
     /// memoryWriteIndirectIndexedY
     /// --------------------------
-    /// Writes the value (byte) to the address (word) found on the zero page at (address byte) pointed to by the PC in little endian format with the register Y added to that found address (wrapping around).
+    /// Writes the value (byte) to the address (word) found on the zero page at (address byte)
+    /// pointed to by the PC in little endian format with the register Y added to that found
+    /// address (wrapping around), taking 5 cycles.
     ///
-    /// Only used by STA, so with STA ($34),Y, where Y contains 6 and memory on $34 containing $C7 and on $35 containing $AB, results in writing the accumulator byte value to $ABCD.
+    /// Only used by STA, so with STA ($34),Y, where Y contains 6 and memory on $34 containing
+    /// $C7 and on $35 containing $AB, results in writing the accumulator byte value to $ABCD.
     fn memoryWriteIndirectIndexedY(self: *CPU6502, value: byte) void {
         const addressZ: byte = self.memoryReadImmediate();
         const address = getAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1)) +% self.Y;
+        self.last_cycles += 5;
         self.memoryManager.write(address, value);
     }
 
     /// memoryReadRelativeAddress
     /// -------------------------
-    /// Branching instructions use relative addressing i.e. adding an offset (a byte), pointed to by the PC to that PC.
-    /// The offset is interpreted as 2's complement, so if bit 7 is set it is used as a negative offset. To calculate that offset, negate all bits and then add 1.
+    /// Branching instructions use relative addressing i.e. adding an offset (a byte),
+    /// pointed to by the PC to that PC, taking 1 or 2 cycles.
+    /// The offset is interpreted as 2's complement, so if bit 7 is set it is used as a
+    /// negative offset. To calculate that offset, negate all bits and then add 1.
     /// The resulting address is returned; PC is NOT set.
     ///
-    /// For example, BEQ $0F will jump (branch) 15 bytes ahead if the Z-flag is set, while BEQ $F0 will jump 16 bytes back if the Z-flag is set.
+    /// For example, BEQ $0F will jump (branch) 15 bytes ahead if the Z-flag is set,
+    /// while BEQ $F0 will jump 16 bytes back if the Z-flag is set.
     fn memoryReadRelativeAddress(self: *CPU6502) word {
         const offset = self.memoryReadImmediate();
         // check for a two's complement negative offset
         const address = if (offset & 0x80 == 0x80) self.PC -% (~offset + 1) else self.PC +% offset;
-        if ((address & 0xFF00) != (self.PC & 0xFF00)) // crossing the page boundary adds an extra cycle
-            self.cycles += 1;
+        // crossing the page boundary adds an extra cycle
+        self.last_cycles += if ((address & 0xFF00) != (self.PC & 0xFF00)) 2 else 1;
         return address;
     }
 
+    /// memoryWriteLast
+    /// -------------------------
+    /// Write to the last address read from, taking 1 cycle.
+    fn memoryWriteLast(self: *CPU6502, value_b: byte) void {
+       self.memoryManager.writeLast(value_b);
+        self.last_cycles += 1;
+    }
+
     /// ADC: ADd to A with Carry
-    /// Add value_b and C to A (16-bits), storing truncated 8 bits into A, honors D(ecimal)-flag while adding.
-    /// C = value_w > $0100
-    /// Z = A == 0
-    /// N = A bit 7
-    /// V => see calculateV()
+    /// Add value_b and C to A (16-bits), storing truncated 8 bits into A.
+    /// Dependent on flags D & C and affects flags C, N, V & Z
     fn instructionADC(self: *CPU6502, value_b: byte) void {
-        var value_w: word = @as(word, self.A) + @as(word, value_b) + @as(word, @intFromBool(self.PS.PS_C));
+        var value_w: word = @as(word, self.A) + @as(word, value_b) + @as(word, @intFromBool(self.PS.C));
         // Z flag is always calculated as in binary add, see http://www.6502.org/tutorials/decimal_mode.html#A
         self.calculateZ(@truncate(value_w));
-        if (self.PS.PS_D) {
-            value_w = (self.A & 0x0F) + (value_b & 0x0F) + @as(byte, @intFromBool(self.PS.PS_C));
+        if (self.PS.D) {
+            value_w = (self.A & 0x0F) + (value_b & 0x0F) + @as(byte, @intFromBool(self.PS.C));
             if (value_w >= 0x0A) // decimal carry on last digit add?
                 value_w = ((value_w + 0x06) & 0x0F) + 0x10;
             value_w += (@as(word, self.A) & 0xF0) + (@as(word, value_b) & 0xF0);
@@ -391,7 +464,35 @@ pub const CPU6502 = struct {
             self.A = @truncate(value_w);
             self.calculateN(self.A);
         }
-        self.PS.PS_C = (value_w >= 0x100);
+        self.PS.C = (value_w >= 0x100);
+    }
+
+    /// ASL: Arithmetic Shift Left; left shift 1 bit of value_b, adding 0 on the right, 
+    /// taking 1 extra cycle.
+    /// Affects flags C (value_b bit 7), N & Z (based on returned result)
+    fn instructionASL(self: *CPU6502, value_b: byte) byte {
+        self.cycles += 1;
+        self.PS.C = ((value_b & 0x80) != 0);
+        const value = value_b << 1;
+        self.calculateN(value);
+        self.calculateZ(value);
+        return value;
+    }
+
+    /// ORA: OR value_b with A;
+    /// affects flags N & Z
+    fn instructionORA(self: *CPU6502, value_b: byte) void {
+        self.A |= value_b;
+        self.calculateN(self.A);
+        self.calculateZ(self.A);
+    }
+
+    /// EOR: Exclusive OR value_b with A
+    /// Affects flags N & Z
+    fn instructionEOR(self: *CPU6502, value_b: byte) void {
+        self.A ^= value_b;
+        self.calculateN(self.A);
+        self.calculateZ(self.A);
     }
 
     pub fn run(self: *CPU6502) RunResult {
@@ -403,146 +504,87 @@ pub const CPU6502 = struct {
 
         while (true) {
             opcode = self.memoryReadImmediate();
+            self.last_cycles = 1;
             switch (opcode) {
                 0x00 => { // BRK
                     self.last_cycles = 7;
                     self.stackPushAddress(self.PC +% 1); // so that BRK may be used to replace a 2 byte instruction
-                    self.PS.PS_B = true; // Non-IRQ/NMI status push i.e. PS_B must be pushed as true
+                    self.PS.B = true; // Non-IRQ/NMI status push i.e. PS_B must be pushed as true
                     self.stackPush(@bitCast(self.PS));
-                    self.PS.PS_B = false;
-                    self.PS.PS_I = true;
+                    self.PS.B = false;
+                    self.PS.I = true;
                     self.PC = self.memoryReadAddress(MEM_IRQ_BREAK);
                 },
                 0x01 => { // ORA (aa,X)
-                    self.last_cycles = 6;
-                    self.A |= self.memoryReadIndexedIndirectX();
-                    self.calculateN(self.A);
-                    self.calculateZ(self.A);
-                    self.calculateZ(self.A);
+                    self.instructionORA(self.memoryReadIndexedIndirectX());
                 },
                 // Illegal opcode 0x02: KIL
                 // Illegal opcode 0x03: SLO (aa,X)
                 // Illegal opcode 0x04: NOP aa
                 0x05 => { // ORA aa
-                    self.last_cycles = 3;
-                    value = self.memoryReadZeroPage();
-                    self.A |= value;
-                    self.calculateN(self.A);
-                    self.calculateZ(self.A);
+                    self.instructionORA(self.memoryReadZeroPage());
                 },
                 0x06 => { // ASL aa
-                    self.last_cycles = 5;
-                    value = self.memoryReadZeroPage();
-                    self.PS.PS_C = ((value & 0x80) != 0);
-                    value <<= 1;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memoryWriteLast(self.instructionASL(self.memoryReadZeroPage()));
                 },
                 // Illegal opcode 0x07: SLO aa
                 0x08 => { // PHP
                     self.last_cycles = 3;
-                    self.PS.PS_B = true; // Non-IRQ/NMI status push i.e. PS_B must be pushed as true
+                    self.PS.B = true; // Non-IRQ/NMI status push i.e. PS_B must be pushed as true
                     self.stackPush(@bitCast(self.PS));
-                    self.PS.PS_B = false;
+                    self.PS.B = false;
                 },
                 0x09 => { // ORA #aa
-                    self.last_cycles = 2;
-                    value = self.memoryReadImmediate();
-                    self.A |= value;
-                    self.calculateN(self.A);
-                    self.calculateZ(self.A);
+                    self.instructionORA(self.memoryReadImmediate());
                 },
                 0x0A => { // ASL
-                    self.last_cycles = 2;
-                    self.PS.PS_C = ((self.A & 0x80) != 0);
-                    self.A <<= 1;
-                    self.calculateN(self.A);
-                    self.calculateZ(self.A);
+                    self.A = self.instructionASL(self.A);
                 },
                 // Illegal opcode 0x0B: ANC #aa
                 // Illegal opcode 0x0C: NOP aaaa
                 0x0D => { // ORA aaaa
-                    self.last_cycles = 4;
-                    value = self.memoryReadAbsolute();
-                    self.A |= value;
-                    self.calculateN(self.A);
-                    self.calculateZ(self.A);
+                    self.instructionORA(self.memoryReadAbsolute());
                 },
                 0x0E => { // ASL aaaa
-                    self.last_cycles = 6;
-                    value = self.memoryReadAbsolute();
-                    self.PS.PS_C = ((value & 0x80) != 0);
-                    value <<= 1;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memoryWriteLast(self.instructionASL(self.memoryReadAbsolute()));
                 },
                 // Illegal opcode 0x0F: SLO aaaa
                 0x10 => { // BPL aaaa
                     self.last_cycles = 2;
                     value_w = self.memoryReadRelativeAddress();
-                    if (!self.PS.PS_N) {
+                    if (!self.PS.N) {
                         self.last_cycles +%= 1;
                         self.PC = value_w;
                     }
                 },
                 0x11 => { // ORA (aa),Y
-                    self.last_cycles = 5;
-                    value = self.memoryReadIndirectIndexedY();
-                    self.A |= value;
-                    self.calculateN(self.A);
-                    self.calculateZ(self.A);
+                    self.instructionORA(self.memoryReadIndirectIndexedY());
                 },
                 // Illegal opcode 0x12: KIL
                 // Illegal opcode 0x13: SLO (aa),Y
                 // Illegal opcode 0x14: NOP aa,X
                 0x15 => { // ORA aa,X
-                    self.last_cycles = 4;
-                    value = self.memoryReadZeroPageIndexedX();
-                    self.A |= value;
-                    self.calculateN(self.A);
-                    self.calculateZ(self.A);
+                    self.instructionORA(self.memoryReadZeroPageIndexedX());
                 },
                 0x16 => { // ASL aa,X
-                    self.last_cycles = 6;
-                    value = self.memoryReadZeroPageIndexedX();
-                    self.PS.PS_C = ((value & 0x80) != 0);
-                    value <<= 1;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memoryWriteLast(self.instructionASL(self.memoryReadZeroPageIndexedX()));
                 },
                 // Illegal opcode 0x17: SLO aa,X
                 0x18 => { // CLC
                     self.last_cycles = 2;
-                    self.PS.PS_C = false;
+                    self.PS.C = false;
                 },
                 0x19 => { // ORA aaaa,Y
-                    self.last_cycles = 4;
-                    value = self.memoryReadAbsoluteIndexedY();
-                    self.A |= value;
-                    self.calculateN(self.A);
-                    self.calculateZ(self.A);
+                    self.instructionORA(self.memoryReadAbsoluteIndexedY());
                 },
                 // Illegal opcode 0x1A: NOP
                 // Illegal opcode 0x1B: SLO aaaa,Y
                 // Illegal opcode 0x1C: NOP aaaa,X
                 0x1D => { // ORA aaaa,X
-                    self.last_cycles = 4;
-                    value = self.memoryReadAbsoluteIndexedX();
-                    self.A |= value;
-                    self.calculateN(self.A);
-                    self.calculateZ(self.A);
+                    self.instructionORA(self.memoryReadAbsoluteIndexedX());
                 },
                 0x1E => { // ASL aaaa,X
-                    self.last_cycles = 7;
-                    value = self.memoryReadAbsoluteIndexedX();
-                    self.PS.PS_C = ((value & 0x80) != 0);
-                    value <<= 1;
-                    self.calculateN(value);
-                    self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memoryWriteLast(self.instructionASL(self.memoryReadAbsoluteIndexedX()));
                 },
                 // Illegal opcode 0x1F: SLO aaaa,X
                 0x20 => { // JSR aaaa
@@ -564,7 +606,7 @@ pub const CPU6502 = struct {
                     self.last_cycles = 3;
                     value = self.memoryReadZeroPage();
                     self.calculateN(value);
-                    self.PS.PS_V = ((value & 0x40) != 0);
+                    self.PS.V = ((value & 0x40) != 0);
                     self.calculateZ(value & self.A);
                 },
                 0x25 => { // AND aa
@@ -577,8 +619,8 @@ pub const CPU6502 = struct {
                 0x26 => { // ROL aa
                     self.last_cycles = 5;
                     value = self.memoryReadZeroPage();
-                    tmp_PS_C = self.PS.PS_C;
-                    self.PS.PS_C = ((value & 0x80) != 0);
+                    tmp_PS_C = self.PS.C;
+                    self.PS.C = ((value & 0x80) != 0);
                     value = (value << 1) | @as(byte, @intFromBool(tmp_PS_C));
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -588,8 +630,8 @@ pub const CPU6502 = struct {
                 0x28 => { // PLP
                     self.last_cycles = 4;
                     self.PS = @bitCast(self.stackPull());
-                    self.PS.PS_1 = true; // Pull value is ignored; value is always true
-                    self.PS.PS_B = false; // Pull value is ignored; value is always false
+                    self.PS.R = true; // Pull value is ignored; value is always true
+                    self.PS.B = false; // Pull value is ignored; value is always false
                 },
                 0x29 => { // AND #aa
                     self.last_cycles = 2;
@@ -600,8 +642,8 @@ pub const CPU6502 = struct {
                 },
                 0x2A => { // ROL
                     self.last_cycles = 2;
-                    tmp_PS_C = self.PS.PS_C;
-                    self.PS.PS_C = ((self.A & 0x80) != 0);
+                    tmp_PS_C = self.PS.C;
+                    self.PS.C = ((self.A & 0x80) != 0);
                     self.A = (self.A << 1) | @as(byte, @intFromBool(tmp_PS_C));
                     self.calculateN(self.A);
                     self.calculateZ(self.A);
@@ -611,7 +653,7 @@ pub const CPU6502 = struct {
                     self.last_cycles = 4;
                     value = self.memoryReadAbsolute();
                     self.calculateN(value);
-                    self.PS.PS_V = ((value & 0x40) != 0);
+                    self.PS.V = ((value & 0x40) != 0);
                     self.calculateZ(value & self.A);
                 },
                 0x2D => { // AND aaaa
@@ -624,8 +666,8 @@ pub const CPU6502 = struct {
                 0x2E => { // ROL aaaa
                     self.last_cycles = 6;
                     value = self.memoryReadAbsolute();
-                    tmp_PS_C = self.PS.PS_C;
-                    self.PS.PS_C = ((value & 0x80) != 0);
+                    tmp_PS_C = self.PS.C;
+                    self.PS.C = ((value & 0x80) != 0);
                     value = (value << 1) | @as(byte, @intFromBool(tmp_PS_C));
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -635,7 +677,7 @@ pub const CPU6502 = struct {
                 0x30 => { // BMI aaaa
                     self.last_cycles = 2;
                     value_w = self.memoryReadRelativeAddress();
-                    if (self.PS.PS_N) {
+                    if (self.PS.N) {
                         self.last_cycles +%= 1;
                         self.PC = value_w;
                     }
@@ -660,8 +702,8 @@ pub const CPU6502 = struct {
                 0x36 => { // ROL aa,X
                     self.last_cycles = 6;
                     value = self.memoryReadZeroPageIndexedX();
-                    tmp_PS_C = self.PS.PS_C;
-                    self.PS.PS_C = ((value & 0x80) != 0);
+                    tmp_PS_C = self.PS.C;
+                    self.PS.C = ((value & 0x80) != 0);
                     value = (value << 1) | @as(byte, @intFromBool(tmp_PS_C));
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -670,7 +712,7 @@ pub const CPU6502 = struct {
                 // Illegal opcode 0x37: RLA aa,X
                 0x38 => { // SEC
                     self.last_cycles = 2;
-                    self.PS.PS_C = true;
+                    self.PS.C = true;
                 },
                 0x39 => { // AND aaaa,Y
                     self.last_cycles = 4;
@@ -692,8 +734,8 @@ pub const CPU6502 = struct {
                 0x3E => { // ROL aaaa,X
                     self.last_cycles = 7;
                     value = self.memoryReadAbsoluteIndexedX();
-                    tmp_PS_C = self.PS.PS_C;
-                    self.PS.PS_C = ((value & 0x80) != 0);
+                    tmp_PS_C = self.PS.C;
+                    self.PS.C = ((value & 0x80) != 0);
                     value = (value << 1) | @as(byte, @intFromBool(tmp_PS_C));
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -703,8 +745,8 @@ pub const CPU6502 = struct {
                 0x40 => { // RTI
                     self.last_cycles = 6;
                     self.PS = @bitCast(self.stackPull());
-                    self.PS.PS_1 = true; // Pull value is ignored; value is always true
-                    self.PS.PS_B = false; // Pull value is ignored; value is always false
+                    self.PS.R = true; // Pull value is ignored; value is always true
+                    self.PS.B = false; // Pull value is ignored; value is always false
                     self.PC = self.stackPullAddress();
                 },
                 0x41 => { // EOR (aa,X)
@@ -727,7 +769,7 @@ pub const CPU6502 = struct {
                 0x46 => { // LSR aa
                     self.last_cycles = 5;
                     value = self.memoryReadZeroPage();
-                    self.PS.PS_C = ((value & 0x01) != 0);
+                    self.PS.C = ((value & 0x01) != 0);
                     value >>= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -747,7 +789,7 @@ pub const CPU6502 = struct {
                 },
                 0x4A => { // LSR
                     self.last_cycles = 2;
-                    self.PS.PS_C = ((self.A & 0x01) != 0);
+                    self.PS.C = ((self.A & 0x01) != 0);
                     self.A >>= 1;
                     self.calculateN(self.A);
                     self.calculateZ(self.A);
@@ -767,7 +809,7 @@ pub const CPU6502 = struct {
                 0x4E => { // LSR aaaa
                     self.last_cycles = 6;
                     value = self.memoryReadAbsolute();
-                    self.PS.PS_C = ((value & 0x01) != 0);
+                    self.PS.C = ((value & 0x01) != 0);
                     value >>= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -777,7 +819,7 @@ pub const CPU6502 = struct {
                 0x50 => { // BVC aaaa
                     self.last_cycles = 2;
                     value_w = self.memoryReadRelativeAddress();
-                    if (!self.PS.PS_V) {
+                    if (!self.PS.V) {
                         self.last_cycles +%= 1;
                         self.PC = value_w;
                     }
@@ -802,7 +844,7 @@ pub const CPU6502 = struct {
                 0x56 => { // LSR aa,X
                     self.last_cycles = 6;
                     value = self.memoryReadZeroPageIndexedX();
-                    self.PS.PS_C = ((value & 0x01) != 0);
+                    self.PS.C = ((value & 0x01) != 0);
                     value >>= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -811,7 +853,7 @@ pub const CPU6502 = struct {
                 // Illegal opcode 0x57: SRE aa,X
                 0x58 => { // CLI
                     self.last_cycles = 2;
-                    self.PS.PS_I = false;
+                    self.PS.I = false;
                 },
                 0x59 => { // EOR aaaa,Y
                     self.last_cycles = 4;
@@ -833,7 +875,7 @@ pub const CPU6502 = struct {
                 0x5E => { // LSR aaaa,X
                     self.last_cycles = 7;
                     value = self.memoryReadAbsoluteIndexedX();
-                    self.PS.PS_C = ((value & 0x01) != 0);
+                    self.PS.C = ((value & 0x01) != 0);
                     value >>= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -845,21 +887,19 @@ pub const CPU6502 = struct {
                     self.PC = self.stackPullAddress() +% 1;
                 },
                 0x61 => { // ADC (aa,X)
-                    self.last_cycles = 6;
                     self.instructionADC(self.memoryReadIndexedIndirectX());
                 },
                 // Illegal opcode 0x62: KIL
                 // Illegal opcode 0x63: RRA (aa,X)
                 // Illegal opcode 0x64: NOP aa
                 0x65 => { // ADC aa
-                    self.last_cycles = 3;
                     self.instructionADC(self.memoryReadZeroPage());
                 },
                 0x66 => { // ROR aa
                     self.last_cycles = 5;
                     value = self.memoryReadZeroPage();
-                    tmp_PS_C = self.PS.PS_C;
-                    self.PS.PS_C = ((value & 0x01) != 0);
+                    tmp_PS_C = self.PS.C;
+                    self.PS.C = ((value & 0x01) != 0);
                     value = (value >> 1) | (@as(byte, @as(byte, @intFromBool(tmp_PS_C))) << 7);
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -873,13 +913,12 @@ pub const CPU6502 = struct {
                     self.calculateZ(self.A);
                 },
                 0x69 => { // ADC #aa
-                    self.last_cycles = 2;
                     self.instructionADC(self.memoryReadImmediate());
                 },
                 0x6A => { // ROR
                     self.last_cycles = 2;
-                    tmp_PS_C = self.PS.PS_C;
-                    self.PS.PS_C = ((self.A & 0x01) != 0);
+                    tmp_PS_C = self.PS.C;
+                    self.PS.C = ((self.A & 0x01) != 0);
                     self.A = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
                     self.calculateN(self.A);
                     self.calculateZ(self.A);
@@ -890,14 +929,13 @@ pub const CPU6502 = struct {
                     self.PC = self.memoryReadIndirectAbsoluteAddress();
                 },
                 0x6D => { // ADC aaaa
-                    self.last_cycles = 4;
                     self.instructionADC(self.memoryReadAbsolute());
                 },
                 0x6E => { // ROR aaaa
                     self.last_cycles = 6;
                     value = self.memoryReadAbsolute();
-                    tmp_PS_C = self.PS.PS_C;
-                    self.PS.PS_C = ((value & 0x01) != 0);
+                    tmp_PS_C = self.PS.C;
+                    self.PS.C = ((value & 0x01) != 0);
                     value = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -907,27 +945,25 @@ pub const CPU6502 = struct {
                 0x70 => { // BVS aaaa
                     self.last_cycles = 2;
                     value_w = self.memoryReadRelativeAddress();
-                    if (self.PS.PS_V) {
+                    if (self.PS.V) {
                         self.last_cycles +%= 1;
                         self.PC = value_w;
                     }
                 },
                 0x71 => { // ADC (aa),Y
-                    self.last_cycles = 5;
                     self.instructionADC(self.memoryReadIndirectIndexedY());
                 },
                 // Illegal opcode 0x72: KIL
                 // Illegal opcode 0x73: RRA (aa),Y
                 // Illegal opcode 0x74: NOP aa,X
                 0x75 => { // ADC aa,X
-                    self.last_cycles = 4;
                     self.instructionADC(self.memoryReadZeroPageIndexedX());
                 },
                 0x76 => { // ROR aa,X
                     self.last_cycles = 6;
                     value = self.memoryReadZeroPageIndexedX();
-                    tmp_PS_C = self.PS.PS_C;
-                    self.PS.PS_C = ((value & 0x01) != 0);
+                    tmp_PS_C = self.PS.C;
+                    self.PS.C = ((value & 0x01) != 0);
                     value = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -936,24 +972,22 @@ pub const CPU6502 = struct {
                 // Illegal opcode 0x77: RRA aa,X
                 0x78 => { // SEI
                     self.last_cycles = 2;
-                    self.PS.PS_I = true;
+                    self.PS.I = true;
                 },
                 0x79 => { // ADC aaaa,Y
-                    self.last_cycles = 4;
                     self.instructionADC(self.memoryReadAbsoluteIndexedY());
                 },
                 // Illegal opcode 0x7A: NOP
                 // Illegal opcode 0x7B: RRA aaaa,Y
                 // Illegal opcode 0x7C: NOP aaaa,X
                 0x7D => { // ADC aaaa,X
-                    self.last_cycles = 4;
                     self.instructionADC(self.memoryReadAbsoluteIndexedX());
                 },
                 0x7E => { // ROR aaaa,X
                     self.last_cycles = 7;
                     value = self.memoryReadAbsoluteIndexedX();
-                    tmp_PS_C = self.PS.PS_C;
-                    self.PS.PS_C = ((value & 0x01) != 0);
+                    tmp_PS_C = self.PS.C;
+                    self.PS.C = ((value & 0x01) != 0);
                     value = (value >> 1) | (@as(byte, @intFromBool(tmp_PS_C)) << 7);
                     self.calculateN(value);
                     self.calculateZ(value);
@@ -1010,7 +1044,7 @@ pub const CPU6502 = struct {
                 0x90 => { // BCC aaaa
                     self.last_cycles = 2;
                     value_w = self.memoryReadRelativeAddress();
-                    if (!self.PS.PS_C) {
+                    if (!self.PS.C) {
                         self.last_cycles +%= 1;
                         self.PC = value_w;
                     }
@@ -1135,7 +1169,7 @@ pub const CPU6502 = struct {
                 0xB0 => { // BCS aaaa
                     self.last_cycles = 2;
                     value_w = self.memoryReadRelativeAddress();
-                    if (self.PS.PS_C) {
+                    if (self.PS.C) {
                         self.last_cycles +%= 1;
                         self.PC = value_w;
                     }
@@ -1169,7 +1203,7 @@ pub const CPU6502 = struct {
                 // Illegal opcode 0xB7: LAX aa,Y
                 0xB8 => { // CLV
                     self.last_cycles = 2;
-                    self.PS.PS_V = false;
+                    self.PS.V = false;
                 },
                 0xB9 => { // LDA aaaa,Y
                     self.last_cycles = 4;
@@ -1209,7 +1243,7 @@ pub const CPU6502 = struct {
                     value = self.Y -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 0xC1 => { // CMP (aa,X)
                     self.last_cycles = 6;
@@ -1217,7 +1251,7 @@ pub const CPU6502 = struct {
                     value = self.A -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 // Illegal opcode 0xC2: NOP #aa
                 // Illegal opcode 0xC3: DCP (aa,X)
@@ -1227,7 +1261,7 @@ pub const CPU6502 = struct {
                     value = self.Y -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 0xC5 => { // CMP aa
                     self.last_cycles = 3;
@@ -1235,7 +1269,7 @@ pub const CPU6502 = struct {
                     value = self.A -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 0xC6 => { // DEC aa
                     self.last_cycles = 5;
@@ -1258,7 +1292,7 @@ pub const CPU6502 = struct {
                     value = self.A -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 0xCA => { // DEX
                     self.last_cycles = 2;
@@ -1273,7 +1307,7 @@ pub const CPU6502 = struct {
                     value = self.Y -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 0xCD => { // CMP aaaa
                     self.last_cycles = 4;
@@ -1281,7 +1315,7 @@ pub const CPU6502 = struct {
                     value = self.A -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 0xCE => { // DEC aaaa
                     self.last_cycles = 6;
@@ -1295,7 +1329,7 @@ pub const CPU6502 = struct {
                 0xD0 => { // BNE aaaa
                     self.last_cycles = 2;
                     value_w = self.memoryReadRelativeAddress();
-                    if (!self.PS.PS_Z) {
+                    if (!self.PS.Z) {
                         self.last_cycles +%= 1;
                         self.PC = value_w;
                     }
@@ -1306,7 +1340,7 @@ pub const CPU6502 = struct {
                     value = self.A -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 // Illegal opcode 0xD2: KIL
                 // Illegal opcode 0xD3: DCP (aa),Y
@@ -1317,7 +1351,7 @@ pub const CPU6502 = struct {
                     value = self.A -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 0xD6 => { // DEC aa,X
                     self.last_cycles = 6;
@@ -1330,7 +1364,7 @@ pub const CPU6502 = struct {
                 // Illegal opcode 0xD7: DCP aa,X
                 0xD8 => { // CLD
                     self.last_cycles = 2;
-                    self.PS.PS_D = false;
+                    self.PS.D = false;
                 },
                 0xD9 => { // CMP aaaa,Y
                     self.last_cycles = 4;
@@ -1338,7 +1372,7 @@ pub const CPU6502 = struct {
                     value = self.A -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 // Illegal opcode 0xDA: NOP
                 // Illegal opcode 0xDB: DCP aaaa,Y
@@ -1349,7 +1383,7 @@ pub const CPU6502 = struct {
                     value = self.A -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 0xDE => { // DEC aaaa,X
                     self.last_cycles = 7;
@@ -1366,19 +1400,19 @@ pub const CPU6502 = struct {
                     value = self.X -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 0xE1 => { // SBC (aa,X)
                     self.last_cycles = 6;
                     value = self.memoryReadIndexedIndirectX();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
+                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
                     self.calculateN(@truncate(value_w));
                     self.calculateV(value, value_w);
                     self.calculateZ(@truncate(value_w));
-                    self.PS.PS_C = (value_w < 0x100);
+                    self.PS.C = (value_w < 0x100);
 
-                    if (self.PS.PS_D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
+                    if (self.PS.D) {
+                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
                         if (value_w2 & 0x8000 != 0)
                             value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
                         value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
@@ -1395,19 +1429,19 @@ pub const CPU6502 = struct {
                     value = self.X -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 0xE5 => { // SBC aa
                     self.last_cycles = 3;
                     value = self.memoryReadZeroPage();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
+                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
                     self.calculateN(@truncate(value_w));
                     self.calculateV(value, value_w);
                     self.calculateZ(@truncate(value_w));
-                    self.PS.PS_C = (value_w < 0x100);
+                    self.PS.C = (value_w < 0x100);
 
-                    if (self.PS.PS_D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
+                    if (self.PS.D) {
+                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
                         if (value_w2 & 0x8000 != 0)
                             value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
                         value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
@@ -1433,14 +1467,14 @@ pub const CPU6502 = struct {
                 0xE9 => { // SBC #aa
                     self.last_cycles = 2;
                     value = self.memoryReadImmediate();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
+                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
                     self.calculateN(@truncate(value_w));
                     self.calculateV(value, value_w);
                     self.calculateZ(@truncate(value_w));
-                    self.PS.PS_C = (value_w < 0x100);
+                    self.PS.C = (value_w < 0x100);
 
-                    if (self.PS.PS_D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
+                    if (self.PS.D) {
+                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
                         if (value_w2 & 0x8000 != 0)
                             value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
                         value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
@@ -1461,19 +1495,19 @@ pub const CPU6502 = struct {
                     value = self.X -% value;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.PS.PS_C = !self.PS.PS_N;
+                    self.PS.C = !self.PS.N;
                 },
                 0xED => { // SBC aaaa
                     self.last_cycles = 4;
                     value = self.memoryReadAbsolute();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
+                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
                     self.calculateN(@truncate(value_w));
                     self.calculateV(value, value_w);
                     self.calculateZ(@truncate(value_w));
-                    self.PS.PS_C = (value_w < 0x100);
+                    self.PS.C = (value_w < 0x100);
 
-                    if (self.PS.PS_D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
+                    if (self.PS.D) {
+                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
                         if (value_w2 & 0x8000 != 0)
                             value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
                         value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
@@ -1493,7 +1527,7 @@ pub const CPU6502 = struct {
                 0xF0 => { // BEQ aaaa
                     self.last_cycles = 2;
                     value_w = self.memoryReadRelativeAddress();
-                    if (self.PS.PS_Z) {
+                    if (self.PS.Z) {
                         self.last_cycles +%= 1;
                         self.PC = value_w;
                     }
@@ -1501,14 +1535,14 @@ pub const CPU6502 = struct {
                 0xF1 => { // SBC (aa),Y
                     self.last_cycles = 5;
                     value = self.memoryReadIndirectIndexedY();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
+                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
                     self.calculateN(@truncate(value_w));
                     self.calculateV(value, value_w);
                     self.calculateZ(@truncate(value_w));
-                    self.PS.PS_C = (value_w < 0x100);
+                    self.PS.C = (value_w < 0x100);
 
-                    if (self.PS.PS_D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
+                    if (self.PS.D) {
+                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
                         if (value_w2 & 0x8000 != 0)
                             value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
                         value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
@@ -1523,14 +1557,14 @@ pub const CPU6502 = struct {
                 0xF5 => { // SBC aa,X
                     self.last_cycles = 4;
                     value = self.memoryReadZeroPageIndexedX();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
+                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
                     self.calculateN(@truncate(value_w));
                     self.calculateV(value, value_w);
                     self.calculateZ(@truncate(value_w));
-                    self.PS.PS_C = (value_w < 0x100);
+                    self.PS.C = (value_w < 0x100);
 
-                    if (self.PS.PS_D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
+                    if (self.PS.D) {
+                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
                         if (value_w2 & 0x8000 != 0)
                             value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
                         value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
@@ -1549,19 +1583,19 @@ pub const CPU6502 = struct {
                 // Illegal opcode 0xF7: ISC aa,X
                 0xF8 => { // SED
                     self.last_cycles = 2;
-                    self.PS.PS_D = true;
+                    self.PS.D = true;
                 },
                 0xF9 => { // SBC aaaa,Y
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedY();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
+                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
                     self.calculateN(@truncate(value_w));
                     self.calculateV(value, value_w);
                     self.calculateZ(@truncate(value_w));
-                    self.PS.PS_C = (value_w < 0x100);
+                    self.PS.C = (value_w < 0x100);
 
-                    if (self.PS.PS_D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
+                    if (self.PS.D) {
+                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
                         if (value_w2 & 0x8000 != 0)
                             value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
                         value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
@@ -1576,14 +1610,14 @@ pub const CPU6502 = struct {
                 0xFD => { // SBC aaaa,X
                     self.last_cycles = 4;
                     value = self.memoryReadAbsoluteIndexedX();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.PS_C));
+                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
                     self.calculateN(@truncate(value_w));
                     self.calculateV(value, value_w);
                     self.calculateZ(@truncate(value_w));
-                    self.PS.PS_C = (value_w < 0x100);
+                    self.PS.C = (value_w < 0x100);
 
-                    if (self.PS.PS_D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.PS_C));
+                    if (self.PS.D) {
+                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
                         if (value_w2 & 0x8000 != 0)
                             value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
                         value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
@@ -1628,6 +1662,6 @@ test "T.cpuRunSingleStep" {
 
     // Check a not initialised page
     try std.testing.expect(cpu.A == 0xFF);
-    try std.testing.expect(cpu.PS.PS_N); // 0xFF is a 2's-complement negative number
+    try std.testing.expect(cpu.PS.N); // 0xFF is a 2's-complement negative number
     try std.testing.expect(cpu.PC == 2);
 }

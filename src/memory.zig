@@ -113,8 +113,7 @@ pub const Memory = struct {
         }
     }
 
-    /// Set a data on the last read address, if writing is enabled, using the page descriptor writer
-    /// Ignore writing to non-writable memory
+    /// Set data at the last read address, if page writing is enabled, using the page descriptor writer
     pub fn writeLast(self: *Memory, data: byte) void {
         self.data_bus = data;
         if (self.getPageDescriptor(self.address_bus)) |descriptor| {
