@@ -149,7 +149,7 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
                 }
             }
             errors += 1;
-            if (errors >= 1) {
+            if (errors >= 4) {
                 // implementation is propably wrong; no need to test any further
                 std.debug.print("\n******** To many errors in this opcode, skipping the rest ********", .{});
                 break;

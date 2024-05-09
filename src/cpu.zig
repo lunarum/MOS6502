@@ -278,7 +278,7 @@ pub const CPU6502 = struct {
     fn memoryWriteAbsoluteIndexedY(self: *CPU6502, value: byte) void {
         const lowByte = self.memoryReadImmediate();
         const highByte = self.memoryReadImmediate();
-        const address = getAddress(lowByte, highByte) +% self.X;
+        const address = getAddress(lowByte, highByte) +% self.Y;
         self.last_cycles += 4;
         self.memoryManager.write(address, value);
     }
@@ -288,17 +288,17 @@ pub const CPU6502 = struct {
     /// Reads the address (word) pointed to by the PC and then uses that as a pointer
     /// in memory to the returned address (again in little endian format), taking 5 cycles
     ///
-    /// Due to a bug in the 6502, when the low (first) byte in memory of the address
-    /// to be returned is 0xFF, the next (high) byte is read still is from adress 0x00,
-    /// but on the same page e.g. when the address is $04FF is used (as the addres of
-    /// the low address byte) the high byte is read from $0400 instead of the expected $0500!
+    /// Due to a bug in the 6502, when the low (first) byte of the pointer address is 0xFF, 
+    /// the next (high) byte to be read is read from 0x00 on the same page as the pointer address.
+    /// e.g. when the pointer address is $04FF, the low address byte is read from $04FF,
+    /// but the high byte is read from $0400 instead of the expected $0500!
     ///
     /// Only JMP uses this addressing mode, so e.g. JMP ($1234), with memory $1234 containing $CD and $1235 containing $AB, jumps to $ABCD.
     fn memoryReadIndirectAbsoluteAddress(self: *CPU6502) word {
         const address = getAddress(self.memoryReadImmediate(), self.memoryReadImmediate());
         const lowByte = self.memoryManager.read(address);
         // 6502 bug: fetching the full address doesn't cross a page boundary but wraps around on the same page
-        const highByte = self.memoryManager.read(if (lowByte == 0xFF) address & 0xFF00 else address + 1);
+        const highByte = self.memoryManager.read(if (address & 0xFF == 0xFF) address & 0xFF00 else address + 1);
         self.last_cycles += 5;
         return getAddress(lowByte, highByte);
     }
