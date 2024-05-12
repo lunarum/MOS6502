@@ -42,7 +42,7 @@ pub fn main() !void {
     var errors: u32 = 0;
     var do_test = false;
     while (try iter.next()) |entry| {
-        if (entry.kind == std.fs.File.Kind.file) {
+        if (entry.kind == std.fs.File.Kind.file and (entry.name.len > 5 and std.mem.eql(u8, entry.name[(entry.name.len-5)..], ".json"))) {
             if (do_test or std.mem.eql(u8, entry.name, "00.json")) {
                 do_test = true;
                 std.debug.print("\n******** File [{s}] ", .{entry.name});
@@ -66,6 +66,12 @@ pub fn main() !void {
                 // break;
             }
         }
+    }
+
+    if (errors == 0) {
+        std.debug.print("\n\nAll tests ok", .{});
+    } else {
+        std.debug.print("\n\n******** All tests contained {} errors ********", .{errors});
     }
 }
 
@@ -203,5 +209,5 @@ fn executeTest(cpu6502: *CPU.CPU6502, entry: JSonTest6502) !bool {
         cpu6502.X == entry.final.x and
         cpu6502.Y == entry.final.y and
         flags == entry.final.p;
-        // (flags & ignored_flags) == (entry.final.p & ignored_flags);
+    // (flags & ignored_flags) == (entry.final.p & ignored_flags);
 }
