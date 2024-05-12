@@ -448,25 +448,42 @@ pub const CPU6502 = struct {
     ///
     /// Dependent on flags D & C and affects flags C, N, V & Z
     fn instructionADC(self: *CPU6502, value_b: byte) void {
-        var value_w: word = @as(word, self.A) + @as(word, value_b) + @as(word, @intFromBool(self.PS.C));
+        // https://github.com/tom-seddon/b2/blob/master/src/6502/c/6502.c
+        const word_a: word = @as(word, self.A);
+        const word_b: word = @as(word, value_b);
+        const carry: byte = (if (self.PS.C) 1 else 0);
+        var temp_a: word = word_a +% @as(word, word_b) +% @as(word, carry);
+
         // Z flag is always calculated as in binary add, see http://www.6502.org/tutorials/decimal_mode.html#A
-        self.calculateZ(@truncate(value_w));
-        if (self.PS.D) {
-            value_w = (self.A & 0x0F) + (value_b & 0x0F) + @as(byte, @intFromBool(self.PS.C));
-            if (value_w >= 0x0A) // decimal carry on last digit add?
-                value_w = ((value_w + 0x06) & 0x0F) + 0x10;
-            value_w += (@as(word, self.A) & 0xF0) + (@as(word, value_b) & 0xF0);
-            self.calculateN(@truncate(value_w));
-            self.calculateV(value_b, value_w);
-            if (value_w >= 0xA0) // decimal carry on first digit add?
-                value_w += 0x60;
-            self.A = @truncate(value_w);
+        self.A = @truncate(temp_a);
+        self.calculateZ(self.A);
+
+        if (self.PS.D) { // Decimal mode?
+            // Start with lower digit
+            temp_a = (word_a & 0x0F) +% (word_b & 0x0F) +% carry;
+            if (temp_a > 0x09) { // result with a carry to the upper digit?
+                temp_a +%= 6;
+            }
+            if (temp_a <= 0x0F) {
+                // add upper digits
+                temp_a = (temp_a & 0x0F) +% (word_a & 0xF0) +% (word_b & 0xF0);
+            } else {
+                // adding upper digits, while correcting the lower digit to decimal and adding carry to upper digit
+                temp_a = (temp_a & 0x0F) +% (word_a & 0xF0) +% (word_b & 0xF0) +% 0x10;
+            }
+
+            self.PS.N = temp_a & 0x80 != 0;
+            self.PS.V = ((word_a ^ temp_a) & 0x80) != 0 and ((word_a ^ word_b) & 0x80) == 0;
+            if (temp_a & 0x1F0 > 0x90) { // overflow result?
+                temp_a +%= 0x60; // correct the upper digit to a valid decimal
+            }
+            self.PS.C = temp_a & 0x0FF0 > 0x00F0;
+            self.A = @as(byte, @truncate(temp_a));
         } else {
-            self.calculateV(value_b, value_w);
-            self.A = @truncate(value_w);
             self.calculateN(self.A);
+            self.PS.C = temp_a & 0xFF00 > 0;
+            self.PS.V = (~(word_a ^ word_b) & (word_a ^ temp_a) & 0x80) != 0;
         }
-        self.PS.C = (value_w >= 0x100);
     }
 
     /// ASL: Arithmetic Shift Left; left shift 1 bit of value_b, adding 0 on the right,
@@ -549,7 +566,7 @@ pub const CPU6502 = struct {
     /// SBC: SuBstract from A with Carry
     /// -------------------------
     /// Substract value_b and C to A (16-bits), storing truncated 8 bits into A.
-    /// 
+    ///
     /// Dependent on flags D & C and affects flags C, N, V & Z
     fn instructionSBC(self: *CPU6502, value_b: byte) void {
         // https://github.com/tom-seddon/b2/blob/master/src/6502/c/6502.c
@@ -559,7 +576,7 @@ pub const CPU6502 = struct {
         const carry: byte = (if (self.PS.C) 1 else 0);
         var temp_a: word = word_a +% @as(word, negated_b) +% @as(word, carry) -% 1;
 
-        // Z, N & V flags are always calculated as in binary add, see http://www.6502.org/tutorials/decimal_mode.html#A
+        // Z & N flags are always calculated as in binary add, see http://www.6502.org/tutorials/decimal_mode.html#A
         self.A = @truncate(temp_a);
         self.calculateZ(self.A);
         self.calculateN(self.A);
@@ -582,7 +599,7 @@ pub const CPU6502 = struct {
             }
             self.A = @as(byte, @truncate(temp_a));
         } else {
-           self.PS.V = ((word_a ^ word_b) & (word_a ^ temp_a) & 0x80) != 0;
+            self.PS.V = ((word_a ^ word_b) & (word_a ^ temp_a) & 0x80) != 0;
         }
     }
 

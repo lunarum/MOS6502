@@ -63,6 +63,7 @@ pub fn main() !void {
                 //     std.debug.print("\n******** To many errors, aborting ********\n", .{});
                 //     break;
                 // }
+                // break;
             }
         }
     }
@@ -114,7 +115,7 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
         if (!ok) {
             _ = line;
             // std.debug.print("\nERROR in test {d:5} '{s:8}': PC{x:4},SP{x:2},A{x:2},X{x:2},Y{x:2},", .{
-            //     line+1,
+            //     line + 1,
             //     entry.name,
             //     entry.initial.pc,
             //     entry.initial.s,
@@ -151,7 +152,7 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
             //     }
             // }
             errors += 1;
-            // if (errors >= 16) {
+            // if (errors >= 30) {
             //     // implementation is propably wrong; no need to test any further
             //     std.debug.print("\n******** To many errors in this opcode, skipping the rest ********", .{});
             //     break;
@@ -187,13 +188,20 @@ fn executeTest(cpu6502: *CPU.CPU6502, entry: JSonTest6502) !bool {
             return false;
         }
     }
+    // if (cpu6502.PS.D)
+    //     return true; // ignore decimal mode problems
+
     const flags: u8 = @bitCast(cpu6502.PS);
-    // const ignored_flags: u8 = ~ @as(u8, 1); // ignore C flag
+    // var ignored_flags: u8 = 0xFF; // no ignore
+    // ignored_flags &= 0; // ignore all flags
+    // ignored_flags &= ~ @as(u8, 1 << 0); // ignore C flag
+    // ignored_flags &= ~ @as(u8, 1 << 6); // ignore V flag
+    // ignored_flags &= ~ @as(u8, 1 << 7); // ignore N flag
     return cpu6502.PC == entry.final.pc and
         cpu6502.SP == entry.final.s and
         cpu6502.A == entry.final.a and
         cpu6502.X == entry.final.x and
         cpu6502.Y == entry.final.y and
         flags == entry.final.p;
-    // (flags & ignored_flags) == (entry.final.p & ignored_flags);
+        // (flags & ignored_flags) == (entry.final.p & ignored_flags);
 }
