@@ -572,9 +572,9 @@ pub const CPU6502 = struct {
         // https://github.com/tom-seddon/b2/blob/master/src/6502/c/6502.c
         const word_a: word = @as(word, self.A);
         const word_b: word = @as(word, value_b);
-        const negated_b = ~value_b +% 1; // 2's-complement negation; substraction is equal to addition with the negated value_b
+        const negated_b = ~value_b; // 2's-complement negation - 1; substraction is equal to addition with the negated value_b and 6502 always substract 1 extra
         const carry: byte = (if (self.PS.C) 1 else 0);
-        var temp_a: word = word_a +% @as(word, negated_b) +% @as(word, carry) -% 1;
+        var temp_a: word = word_a +% @as(word, negated_b) +% @as(word, carry);
 
         // Z & N flags are always calculated as in binary add, see http://www.6502.org/tutorials/decimal_mode.html#A
         self.A = @truncate(temp_a);
