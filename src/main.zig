@@ -43,7 +43,7 @@ pub fn main() !void {
     var do_test = false;
     while (try iter.next()) |entry| {
         if (entry.kind == std.fs.File.Kind.file) {
-            if (do_test or std.mem.eql(u8, entry.name, "00.json")) {    
+            if (do_test or std.mem.eql(u8, entry.name, "00.json")) {
                 do_test = true;
                 std.debug.print("\n******** File [{s}] ", .{entry.name});
 
@@ -58,11 +58,11 @@ pub fn main() !void {
                         std.debug.print("{s} ", .{entry.name});
                     continue;
                 };
-                if (errors >= 1) {
-                    // the whole implementation propably has some serious problems; no need to test any further
-                    std.debug.print("\n******** To many errors, aborting ********\n", .{});
-                    break;
-                }
+                // if (errors >= 1) {
+                //     // the whole implementation propably has some serious problems; no need to test any further
+                //     std.debug.print("\n******** To many errors, aborting ********\n", .{});
+                //     break;
+                // }
             }
         }
     }
@@ -112,50 +112,56 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
     for (entries, 0..) |entry, line| {
         const ok = try executeTest(&cpu6502, entry);
         if (!ok) {
-            std.debug.print("\nERROR in test {d:5} '{s:8}': PC{x:4},SP{x:2},A{x:2},X{x:2},Y{x:2},", .{
-                line+1,
-                entry.name,
-                entry.initial.pc,
-                entry.initial.s,
-                entry.initial.a,
-                entry.initial.x,
-                entry.initial.y,
-            });
-            printFlags(@bitCast(entry.initial.p));
-            std.debug.print(" => PC{x:4},SP{x:2},A{x:2},X{x:2},Y{x:2},", .{
-                entry.final.pc,
-                entry.final.s,
-                entry.final.a,
-                entry.final.x,
-                entry.final.y,
-            });
-            printFlags(@bitCast(entry.final.p));
-            std.debug.print(" != PC{x:4},SP{x:2},A{x:2},X{x:2},Y{x:2},", .{
-                cpu6502.PC,
-                cpu6502.SP,
-                cpu6502.A,
-                cpu6502.X,
-                cpu6502.Y,
-            });
-            printFlags(cpu6502.PS);
-            std.debug.print("\nMEMORY ", .{});
-            for (entry.final.ram) |ram_entry| {
-                std.debug.print("{x:4}:{x:2} ", .{
-                    ram_entry.@"0",
-                    ram_entry.@"1",
-                });
-                const b = cpu6502.memoryManager.read(ram_entry.@"0");
-                if (b != ram_entry.@"1") {
-                    std.debug.print("!= {x:2} ", .{b});
-                }
-            }
+            _ = line;
+            // std.debug.print("\nERROR in test {d:5} '{s:8}': PC{x:4},SP{x:2},A{x:2},X{x:2},Y{x:2},", .{
+            //     line+1,
+            //     entry.name,
+            //     entry.initial.pc,
+            //     entry.initial.s,
+            //     entry.initial.a,
+            //     entry.initial.x,
+            //     entry.initial.y,
+            // });
+            // printFlags(@bitCast(entry.initial.p));
+            // std.debug.print(" => PC{x:4},SP{x:2},A{x:2},X{x:2},Y{x:2},", .{
+            //     entry.final.pc,
+            //     entry.final.s,
+            //     entry.final.a,
+            //     entry.final.x,
+            //     entry.final.y,
+            // });
+            // printFlags(@bitCast(entry.final.p));
+            // std.debug.print(" != PC{x:4},SP{x:2},A{x:2},X{x:2},Y{x:2},", .{
+            //     cpu6502.PC,
+            //     cpu6502.SP,
+            //     cpu6502.A,
+            //     cpu6502.X,
+            //     cpu6502.Y,
+            // });
+            // printFlags(cpu6502.PS);
+            // std.debug.print("\nMEMORY ", .{});
+            // for (entry.final.ram) |ram_entry| {
+            //     std.debug.print("{x:4}:{x:2} ", .{
+            //         ram_entry.@"0",
+            //         ram_entry.@"1",
+            //     });
+            //     const b = cpu6502.memoryManager.read(ram_entry.@"0");
+            //     if (b != ram_entry.@"1") {
+            //         std.debug.print("!= {x:2} ", .{b});
+            //     }
+            // }
             errors += 1;
-            if (errors >= 4) {
-                // implementation is propably wrong; no need to test any further
-                std.debug.print("\n******** To many errors in this opcode, skipping the rest ********", .{});
-                break;
-            }
+            // if (errors >= 16) {
+            //     // implementation is propably wrong; no need to test any further
+            //     std.debug.print("\n******** To many errors in this opcode, skipping the rest ********", .{});
+            //     break;
+            // }
         }
+    }
+    if (errors == 0) {
+        std.debug.print("ok", .{});
+    } else {
+        std.debug.print("******** {} errors ********", .{errors});
     }
     return errors;
 }
@@ -182,10 +188,12 @@ fn executeTest(cpu6502: *CPU.CPU6502, entry: JSonTest6502) !bool {
         }
     }
     const flags: u8 = @bitCast(cpu6502.PS);
+    // const ignored_flags: u8 = ~ @as(u8, 1); // ignore C flag
     return cpu6502.PC == entry.final.pc and
         cpu6502.SP == entry.final.s and
         cpu6502.A == entry.final.a and
         cpu6502.X == entry.final.x and
         cpu6502.Y == entry.final.y and
         flags == entry.final.p;
+    // (flags & ignored_flags) == (entry.final.p & ignored_flags);
 }

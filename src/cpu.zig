@@ -100,7 +100,7 @@ pub const CPU6502 = struct {
     /// https://stackoverflow.com/questions/66141379/arithmetic-overflow-for-different-signed-numbers-6502-assembly
     /// v = ~(a^operand) & (a^result) & 0x80;
     pub inline fn calculateV(self: *CPU6502, operand: byte, result: word) void {
-        self.PS.V = (~(self.A ^ operand) & (self.A ^ result) & 0x80) > 0;
+        self.PS.V = (~(self.A ^ operand) & (self.A ^ (result >> 8)) & 0x80) > 0;
     }
 
     /// The Zero flag simply indicates if value is zero.
@@ -443,8 +443,9 @@ pub const CPU6502 = struct {
     }
 
     /// ADC: ADd to A with Carry
+    /// -------------------------
     /// Add value_b and C to A (16-bits), storing truncated 8 bits into A.
-    /// 
+    ///
     /// Dependent on flags D & C and affects flags C, N, V & Z
     fn instructionADC(self: *CPU6502, value_b: byte) void {
         var value_w: word = @as(word, self.A) + @as(word, value_b) + @as(word, @intFromBool(self.PS.C));
@@ -470,7 +471,7 @@ pub const CPU6502 = struct {
 
     /// ASL: Arithmetic Shift Left; left shift 1 bit of value_b, adding 0 on the right,
     /// taking 1 extra cycle.
-    /// 
+    /// -------------------------
     /// Affects flags C (value_b bit 7), N & Z (based on returned result).
     fn instructionASL(self: *CPU6502, value_b: byte) byte {
         self.cycles += 1;
@@ -482,7 +483,7 @@ pub const CPU6502 = struct {
     }
 
     /// CMP: CoMPare A; sets flags based on comparing (substracting) value_b and (from) A.
-    /// 
+    /// -------------------------
     /// Affects flags C (A >= value_b), N (A < value_b) & Z (A == value_b).
     fn instructionCMP(self: *CPU6502, value_b: byte) void {
         const value = self.A -% value_b;
@@ -490,9 +491,9 @@ pub const CPU6502 = struct {
         self.calculateZ(value);
         self.PS.C = self.A >= value_b;
     }
-    
+
     /// CPX: ComPare X; sets flags based on comparing (substracting) value_b and (from) X.
-    /// 
+    /// -------------------------
     /// Affects flags C (X >= value_b), N (X < value_b) & Z (X == value_b).
     fn instructionCPX(self: *CPU6502, value_b: byte) void {
         const value = self.X -% value_b;
@@ -502,7 +503,7 @@ pub const CPU6502 = struct {
     }
 
     /// CPY: ComPare Y; sets flags based on comparing (substracting) value_b and (from) Y.
-    /// 
+    /// -------------------------
     /// Affects flags C (Y >= value_b), N (Y < value_b) & Z (Y == value_b).
     fn instructionCPY(self: *CPU6502, value_b: byte) void {
         const value = self.Y -% value_b;
@@ -512,7 +513,7 @@ pub const CPU6502 = struct {
     }
 
     /// EOR: Exclusive OR value_b with A
-    /// 
+    /// -------------------------
     /// Affects flags N & Z.
     fn instructionEOR(self: *CPU6502, value_b: byte) void {
         self.A ^= value_b;
@@ -521,7 +522,7 @@ pub const CPU6502 = struct {
     }
 
     /// ORA: OR value_b with A
-    /// 
+    /// -------------------------
     /// Affects flags N & Z.
     fn instructionORA(self: *CPU6502, value_b: byte) void {
         self.A |= value_b;
@@ -531,7 +532,7 @@ pub const CPU6502 = struct {
 
     /// ROR: ROtate Right; right shift 1 bit of value_b, adding C flag on the left,
     /// taking 1 extra cycle.
-    /// 
+    /// -------------------------
     /// Affects flags C (value_b bit 7), N & Z (based on returned result).
     fn instructionROR(self: *CPU6502, value_b: byte) byte {
         self.cycles += 1;
@@ -545,12 +546,51 @@ pub const CPU6502 = struct {
         return value;
     }
 
+    /// SBC: SuBstract from A with Carry
+    /// -------------------------
+    /// Substract value_b and C to A (16-bits), storing truncated 8 bits into A.
+    /// 
+    /// Dependent on flags D & C and affects flags C, N, V & Z
+    fn instructionSBC(self: *CPU6502, value_b: byte) void {
+        // https://github.com/tom-seddon/b2/blob/master/src/6502/c/6502.c
+        const word_a: word = @as(word, self.A);
+        const word_b: word = @as(word, value_b);
+        const negated_b = ~value_b +% 1; // 2's-complement negation; substraction is equal to addition with the negated value_b
+        const carry: byte = (if (self.PS.C) 1 else 0);
+        var temp_a: word = word_a +% @as(word, negated_b) +% @as(word, carry) -% 1;
+
+        // Z, N & V flags are always calculated as in binary add, see http://www.6502.org/tutorials/decimal_mode.html#A
+        self.A = @truncate(temp_a);
+        self.calculateZ(self.A);
+        self.calculateN(self.A);
+        self.PS.C = temp_a & 0xFF00 > 0;
+
+        if (self.PS.D) { // Decimal mode?
+            self.PS.V = ((word_a ^ temp_a) & 0x80) != 0 and ((word_a ^ word_b) & 0x80) != 0;
+
+            // Start with lower digit
+            temp_a = (word_a & 0x0F) -% (word_b & 0x0F) +% carry -% 1;
+            if (temp_a & 0x10 > 0) { // result with a borrow from the upper digit?
+                // substract upper digits, while correcting lower digit to decimal and borrow from upper digit
+                temp_a = ((temp_a -% 0x06) & 0x0F) | ((word_a & 0xF0) -% (word_b & 0xF0) -% 0x10);
+            } else {
+                // add upper digits
+                temp_a = (temp_a & 0x0F) | ((word_a & 0xF0) -% (word_b & 0xF0));
+            }
+            if (temp_a & 0x100 > 0) { // negative result?
+                temp_a -%= 0x60; // ignore negative, but correct the upper digit to decimal
+            }
+            self.A = @as(byte, @truncate(temp_a));
+        } else {
+           self.PS.V = ((word_a ^ word_b) & (word_a ^ temp_a) & 0x80) != 0;
+        }
+    }
+
     pub fn run(self: *CPU6502) RunResult {
         var tmp_PS_C: bool = undefined;
         var opcode: byte = undefined;
         var value: byte = undefined;
         var value_w: word = undefined;
-        var value_w2: word = undefined;
 
         while (true) {
             opcode = self.memoryReadImmediate();
@@ -1360,23 +1400,7 @@ pub const CPU6502 = struct {
                     self.instructionCPX(self.memoryReadImmediate());
                 },
                 0xE1 => { // SBC (aa,X)
-                    self.last_cycles = 6;
-                    value = self.memoryReadIndexedIndirectX();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
-                    self.calculateN(@truncate(value_w));
-                    self.calculateV(value, value_w);
-                    self.calculateZ(@truncate(value_w));
-                    self.PS.C = (value_w < 0x100);
-
-                    if (self.PS.D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
-                        if (value_w2 & 0x8000 != 0)
-                            value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
-                        value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
-                        if (value_w2 & 0x8000 != 0)
-                            value_w -%= 0x60;
-                        self.A = @truncate(value_w2 & 0xFF);
-                    } else self.A = @truncate(value_w & 0xFF);
+                    self.instructionSBC(self.memoryReadIndexedIndirectX());
                 },
                 // Illegal opcode 0xE2: NOP #aa
                 // Illegal opcode 0xE3: ISC (aa,X)
@@ -1384,23 +1408,7 @@ pub const CPU6502 = struct {
                     self.instructionCPX(self.memoryReadZeroPage());
                 },
                 0xE5 => { // SBC aa
-                    self.last_cycles = 3;
-                    value = self.memoryReadZeroPage();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
-                    self.calculateN(@truncate(value_w));
-                    self.calculateV(value, value_w);
-                    self.calculateZ(@truncate(value_w));
-                    self.PS.C = (value_w < 0x100);
-
-                    if (self.PS.D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
-                        if (value_w2 & 0x8000 != 0)
-                            value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
-                        value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
-                        if (value_w2 & 0x8000 != 0)
-                            value_w -%= 0x60;
-                        self.A = @truncate(value_w2 & 0xFF);
-                    } else self.A = @truncate(value_w & 0xFF);
+                    self.instructionSBC(self.memoryReadZeroPage());
                 },
                 0xE6 => { // INC aa
                     self.last_cycles = 5;
@@ -1417,23 +1425,7 @@ pub const CPU6502 = struct {
                     self.calculateZ(self.X);
                 },
                 0xE9 => { // SBC #aa
-                    self.last_cycles = 2;
-                    value = self.memoryReadImmediate();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
-                    self.calculateN(@truncate(value_w));
-                    self.calculateV(value, value_w);
-                    self.calculateZ(@truncate(value_w));
-                    self.PS.C = (value_w < 0x100);
-
-                    if (self.PS.D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
-                        if (value_w2 & 0x8000 != 0)
-                            value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
-                        value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
-                        if (value_w2 & 0x8000 != 0)
-                            value_w -%= 0x60;
-                        self.A = @truncate(value_w2 & 0xFF);
-                    } else self.A = @truncate(value_w & 0xFF);
+                    self.instructionSBC(self.memoryReadImmediate());
                 },
                 0xEA => { // NOP
                     self.last_cycles = 2;
@@ -1445,23 +1437,7 @@ pub const CPU6502 = struct {
                     self.instructionCPX(self.memoryReadAbsolute());
                 },
                 0xED => { // SBC aaaa
-                    self.last_cycles = 4;
-                    value = self.memoryReadAbsolute();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
-                    self.calculateN(@truncate(value_w));
-                    self.calculateV(value, value_w);
-                    self.calculateZ(@truncate(value_w));
-                    self.PS.C = (value_w < 0x100);
-
-                    if (self.PS.D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
-                        if (value_w2 & 0x8000 != 0)
-                            value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
-                        value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
-                        if (value_w2 & 0x8000 != 0)
-                            value_w -%= 0x60;
-                        self.A = @truncate(value_w2 & 0xFF);
-                    } else self.A = @truncate(value_w & 0xFF);
+                    self.instructionSBC(self.memoryReadAbsolute());
                 },
                 0xEE => { // INC aaaa
                     self.last_cycles = 6;
@@ -1480,45 +1456,13 @@ pub const CPU6502 = struct {
                     }
                 },
                 0xF1 => { // SBC (aa),Y
-                    self.last_cycles = 5;
-                    value = self.memoryReadIndirectIndexedY();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
-                    self.calculateN(@truncate(value_w));
-                    self.calculateV(value, value_w);
-                    self.calculateZ(@truncate(value_w));
-                    self.PS.C = (value_w < 0x100);
-
-                    if (self.PS.D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
-                        if (value_w2 & 0x8000 != 0)
-                            value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
-                        value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
-                        if (value_w2 & 0x8000 != 0)
-                            value_w -%= 0x60;
-                        self.A = @truncate(value_w2 & 0xFF);
-                    } else self.A = @truncate(value_w & 0xFF);
+                    self.instructionSBC(self.memoryReadIndirectIndexedY());
                 },
                 // Illegal opcode 0xF2: KIL
                 // Illegal opcode 0xF3: ISC (aa),Y
                 // Illegal opcode 0xF4: NOP aa,X
                 0xF5 => { // SBC aa,X
-                    self.last_cycles = 4;
-                    value = self.memoryReadZeroPageIndexedX();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
-                    self.calculateN(@truncate(value_w));
-                    self.calculateV(value, value_w);
-                    self.calculateZ(@truncate(value_w));
-                    self.PS.C = (value_w < 0x100);
-
-                    if (self.PS.D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
-                        if (value_w2 & 0x8000 != 0)
-                            value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
-                        value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
-                        if (value_w2 & 0x8000 != 0)
-                            value_w -%= 0x60;
-                        self.A = @truncate(value_w2 & 0xFF);
-                    } else self.A = @truncate(value_w & 0xFF);
+                    self.instructionSBC(self.memoryReadZeroPageIndexedX());
                 },
                 0xF6 => { // INC aa,X
                     self.last_cycles = 6;
@@ -1533,45 +1477,13 @@ pub const CPU6502 = struct {
                     self.PS.D = true;
                 },
                 0xF9 => { // SBC aaaa,Y
-                    self.last_cycles = 4;
-                    value = self.memoryReadAbsoluteIndexedY();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
-                    self.calculateN(@truncate(value_w));
-                    self.calculateV(value, value_w);
-                    self.calculateZ(@truncate(value_w));
-                    self.PS.C = (value_w < 0x100);
-
-                    if (self.PS.D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
-                        if (value_w2 & 0x8000 != 0)
-                            value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
-                        value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
-                        if (value_w2 & 0x8000 != 0)
-                            value_w -%= 0x60;
-                        self.A = @truncate(value_w2 & 0xFF);
-                    } else self.A = @truncate(value_w & 0xFF);
+                    self.instructionSBC(self.memoryReadAbsoluteIndexedY());
                 },
                 // Illegal opcode 0xFA: NOP
                 // Illegal opcode 0xFB: ISC aaaa,Y
                 // Illegal opcode 0xFC: NOP aaaa,X
                 0xFD => { // SBC aaaa,X
-                    self.last_cycles = 4;
-                    value = self.memoryReadAbsoluteIndexedX();
-                    value_w = self.A -% value -% @as(byte, @intFromBool(self.PS.C));
-                    self.calculateN(@truncate(value_w));
-                    self.calculateV(value, value_w);
-                    self.calculateZ(@truncate(value_w));
-                    self.PS.C = (value_w < 0x100);
-
-                    if (self.PS.D) {
-                        value_w2 = (self.A & 0x0F) -% (value & 0x0F) +% @as(byte, @intFromBool(self.PS.C));
-                        if (value_w2 & 0x8000 != 0)
-                            value_w = ((value_w -% 0x06) & 0x0F) -% 0x10;
-                        value_w2 +%= (self.A & 0xF0) -% (value & 0xF0);
-                        if (value_w2 & 0x8000 != 0)
-                            value_w -%= 0x60;
-                        self.A = @truncate(value_w2 & 0xFF);
-                    } else self.A = @truncate(value_w & 0xFF);
+                    self.instructionSBC(self.memoryReadAbsoluteIndexedX());
                 },
                 0xFE => { // INC aaaa,X
                     self.last_cycles = 7;
