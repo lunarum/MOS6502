@@ -672,7 +672,6 @@ pub const CPU6502 = struct {
     }
 
     pub fn run(self: *CPU6502) RunResult {
-        var tmp_PS_C: bool = undefined;
         var opcode: byte = undefined;
         var value: byte = undefined;
         var value_w: word = undefined;
