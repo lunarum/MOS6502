@@ -10,10 +10,6 @@ pub const MEM_NMI: word = 0xFFFA;
 pub const MEM_RESET: word = 0xFFFC;
 pub const MEM_IRQ_BREAK: word = 0xFFFE;
 
-pub fn getAddress(lowByte: byte, highByte: byte) word {
-    return @as(word, highByte) << 8 | @as(word, lowByte);
-}
-
 pub const RunResult = enum {
     STEP,
     BREAK,
@@ -91,8 +87,13 @@ pub const CPU6502 = struct {
         return address & 0xFF00;
     }
 
+    /// Creates and 16-bit (word) address based on the low and high bytes.
+    inline fn createAddress(lowByte: byte, highByte: byte) word {
+        return @as(word, highByte) << 8 | @as(word, lowByte);
+    }
+
     /// The Negative flag indicate is the sign bit (bit 7) of value is set.
-    pub inline fn calculateN(self: *CPU6502, value: byte) void {
+    inline fn calculateN(self: *CPU6502, value: byte) void {
         self.PS.N = (value & 0x80) != 0;
     }
 
@@ -100,12 +101,12 @@ pub const CPU6502 = struct {
     /// For example, the specific test for ADC is: if the two input numbers have the same sign, and the result has a different sign, set overflow. Otherwise clear it.
     /// https://stackoverflow.com/questions/66141379/arithmetic-overflow-for-different-signed-numbers-6502-assembly
     /// v = ~(a^operand) & (a^result) & 0x80;
-    pub inline fn calculateV(self: *CPU6502, operand: byte, result: word) void {
+    inline fn calculateV(self: *CPU6502, operand: byte, result: word) void {
         self.PS.V = (~(self.A ^ operand) & (self.A ^ (result >> 8)) & 0x80) > 0;
     }
 
     /// The Zero flag simply indicates if value is zero.
-    pub inline fn calculateZ(self: *CPU6502, value: byte) void {
+    inline fn calculateZ(self: *CPU6502, value: byte) void {
         self.PS.Z = value == 0;
     }
 
@@ -164,7 +165,7 @@ pub const CPU6502 = struct {
     /// The byte value read is the byte at the memory location pointed to by the PC, taking 1 cycle.
     ///
     /// For example, LDA #$1A loads the value $1A into the accumulator.
-    pub fn memoryReadImmediate(self: *CPU6502) byte {
+    fn memoryReadImmediate(self: *CPU6502) byte {
         const value = self.memoryManager.read(self.PC);
         self.PC +%= 1;
         self.last_cycles += 1;
@@ -177,9 +178,9 @@ pub const CPU6502 = struct {
     /// taking 3 cycles.
     ///
     /// For example, LDA $1234 reads the value in memory location $1234 and stores it into the accumulator.
-    pub fn memoryReadAbsolute(self: *CPU6502) byte {
+    fn memoryReadAbsolute(self: *CPU6502) byte {
         self.last_cycles += 3;
-        return self.memoryManager.read(getAddress(self.memoryReadImmediate(), self.memoryReadImmediate()));
+        return self.memoryManager.read(createAddress(self.memoryReadImmediate(), self.memoryReadImmediate()));
     }
 
     /// memoryReadAbsoluteAddress
@@ -190,7 +191,7 @@ pub const CPU6502 = struct {
     /// For example, JMP $1A2B loads the address $1A2B into the PC (jumps to).
     fn memoryReadAbsoluteAddress(self: *CPU6502) word {
         self.last_cycles += 3;
-        return getAddress(self.memoryReadImmediate(), self.memoryReadImmediate());
+        return createAddress(self.memoryReadImmediate(), self.memoryReadImmediate());
     }
 
     /// memoryWriteAbsolute
@@ -199,9 +200,9 @@ pub const CPU6502 = struct {
     /// taking 3 cycles
     ///
     /// For example, STA $1A2B stores the present value of the accumulator in memory location $1A2B.
-    pub fn memoryWriteAbsolute(self: *CPU6502, value: byte) void {
+    fn memoryWriteAbsolute(self: *CPU6502, value: byte) void {
         self.last_cycles += 3;
-        self.memoryManager.write(getAddress(self.memoryReadImmediate(), self.memoryReadImmediate()), value);
+        self.memoryManager.write(createAddress(self.memoryReadImmediate(), self.memoryReadImmediate()), value);
     }
 
     /// memoryReadZeroPage
@@ -236,7 +237,7 @@ pub const CPU6502 = struct {
     fn memoryReadAbsoluteIndexedX(self: *CPU6502) byte {
         const lowByte = self.memoryReadImmediate();
         const highByte = self.memoryReadImmediate();
-        const address = getAddress(lowByte, highByte) +% self.X;
+        const address = createAddress(lowByte, highByte) +% self.X;
         // crossing a page boundary adds an extra cycle
         self.last_cycles += if (highByte != address >> 8) 4 else 3;
         return self.memoryManager.read(address);
@@ -252,7 +253,7 @@ pub const CPU6502 = struct {
     fn memoryReadAbsoluteIndexedY(self: *CPU6502) byte {
         const lowByte = self.memoryReadImmediate();
         const highByte = self.memoryReadImmediate();
-        const address = getAddress(lowByte, highByte) +% self.Y;
+        const address = createAddress(lowByte, highByte) +% self.Y;
         // crossing a page boundary adds an extra cycle
         self.last_cycles += if (highByte != address >> 8) 4 else 3;
         return self.memoryManager.read(address);
@@ -268,7 +269,7 @@ pub const CPU6502 = struct {
     fn memoryWriteAbsoluteIndexedX(self: *CPU6502, value: byte) void {
         const lowByte = self.memoryReadImmediate();
         const highByte = self.memoryReadImmediate();
-        const address = getAddress(lowByte, highByte) +% self.X;
+        const address = createAddress(lowByte, highByte) +% self.X;
         self.last_cycles += 4;
         self.memoryManager.write(address, value);
     }
@@ -283,7 +284,7 @@ pub const CPU6502 = struct {
     fn memoryWriteAbsoluteIndexedY(self: *CPU6502, value: byte) void {
         const lowByte = self.memoryReadImmediate();
         const highByte = self.memoryReadImmediate();
-        const address = getAddress(lowByte, highByte) +% self.Y;
+        const address = createAddress(lowByte, highByte) +% self.Y;
         self.last_cycles += 4;
         self.memoryManager.write(address, value);
     }
@@ -300,12 +301,12 @@ pub const CPU6502 = struct {
     ///
     /// Only JMP uses this addressing mode, so e.g. JMP ($1234), with memory $1234 containing $CD and $1235 containing $AB, jumps to $ABCD.
     fn memoryReadIndirectAbsoluteAddress(self: *CPU6502) word {
-        const address = getAddress(self.memoryReadImmediate(), self.memoryReadImmediate());
+        const address = createAddress(self.memoryReadImmediate(), self.memoryReadImmediate());
         const lowByte = self.memoryManager.read(address);
         // 6502 bug: fetching the full address doesn't cross a page boundary but wraps around on the same page
         const highByte = self.memoryManager.read(if (address & 0xFF == 0xFF) get_page_part(address) else address + 1);
         self.last_cycles += 5;
-        return getAddress(lowByte, highByte);
+        return createAddress(lowByte, highByte);
     }
 
     /// memoryReadZeroPageIndexedX
@@ -368,7 +369,7 @@ pub const CPU6502 = struct {
     /// $3B containing $AB, results in loading the accumulator with the byte value at $ABCD.
     fn memoryReadIndexedIndirectX(self: *CPU6502) byte {
         const addressZ: byte = self.memoryReadImmediate() +% self.X;
-        const address = getAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1));
+        const address = createAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1));
         self.last_cycles += 5;
         return self.memoryManager.read(address);
     }
@@ -383,7 +384,7 @@ pub const CPU6502 = struct {
     /// $CD and on $3B containing $AB, results in writing the accumulator byte value to $ABCD.
     fn memoryWriteIndexedIndirectX(self: *CPU6502, value: byte) void {
         const addressZ: byte = self.memoryReadImmediate() +% self.X;
-        const address = getAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1));
+        const address = createAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1));
         self.last_cycles += 5;
         self.memoryManager.write(address, value);
     }
@@ -399,7 +400,7 @@ pub const CPU6502 = struct {
     fn memoryReadIndirectIndexedY(self: *CPU6502) byte {
         const addressZ: byte = self.memoryReadImmediate();
         const highByte = self.memoryManager.readZero(addressZ +% 1);
-        const address = getAddress(self.memoryManager.readZero(addressZ), highByte) +% self.Y;
+        const address = createAddress(self.memoryManager.readZero(addressZ), highByte) +% self.Y;
         // crossing a page boundary adds an extra cycle
         self.last_cycles += if (highByte != address >> 8) 5 else 4;
         return self.memoryManager.read(address);
@@ -415,7 +416,7 @@ pub const CPU6502 = struct {
     /// $C7 and on $35 containing $AB, results in writing the accumulator byte value to $ABCD.
     fn memoryWriteIndirectIndexedY(self: *CPU6502, value: byte) void {
         const addressZ: byte = self.memoryReadImmediate();
-        const address = getAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1)) +% self.Y;
+        const address = createAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1)) +% self.Y;
         self.last_cycles += 5;
         self.memoryManager.write(address, value);
     }
@@ -665,6 +666,11 @@ pub const CPU6502 = struct {
         }
     }
 
+    /// run - start executing from the current PC address
+    ///
+    /// If single-step is true, only a single opcode will be processed.
+    ///
+    /// returns when single-stepping (after 1 opcode) or when a BRK or illegal opcode is processed.
     pub fn run(self: *CPU6502) RunResult {
         var opcode: byte = undefined;
         var value: byte = undefined;
