@@ -1,8 +1,8 @@
 const std = @import("std");
 pub const Memory = @import("memory.zig");
 
-const byte = Memory.byte;
-const word = Memory.word;
+pub const byte = Memory.byte;
+pub const word = Memory.word;
 
 pub const MEM_STACK_PAGE: byte = 0x01;
 pub const MEM_ZERO_PAGE: byte = 0x00;
