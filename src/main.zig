@@ -42,7 +42,7 @@ pub fn main() !void {
     var errors: u32 = 0;
     var do_test = false;
     while (try iter.next()) |entry| {
-        if (entry.kind == std.fs.File.Kind.file and (entry.name.len > 5 and std.mem.eql(u8, entry.name[(entry.name.len-5)..], ".json"))) {
+        if (entry.kind == std.fs.File.Kind.file and (entry.name.len > 5 and std.mem.eql(u8, entry.name[(entry.name.len - 5)..], ".json"))) {
             if (do_test or std.mem.eql(u8, entry.name, "00.json")) {
                 do_test = true;
                 std.debug.print("\n******** File [{s}] ", .{entry.name});
@@ -185,7 +185,7 @@ fn executeTest(cpu6502: *CPU.CPU6502, entry: JSonTest6502) !bool {
     }
 
     cpu6502.single_step = true;
-    if (cpu6502.run() == CPU.RunResult.RESULT_ILLEGAL_INSTUCTION) {
+    if (cpu6502.run() == CPU.RunResult.ILLEGAL_INSTUCTION) {
         return error.InvalidItem;
     }
 

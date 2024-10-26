@@ -1,5 +1,5 @@
 const std = @import("std");
-const Memory = @import("memory.zig");
+pub const Memory = @import("memory.zig");
 
 const byte = Memory.byte;
 const word = Memory.word;
@@ -9,21 +9,15 @@ pub const MEM_ZERO_PAGE: byte = 0x00;
 pub const MEM_NMI: word = 0xFFFA;
 pub const MEM_RESET: word = 0xFFFC;
 pub const MEM_IRQ_BREAK: word = 0xFFFE;
-pub const COUNTER_VIC: byte = 0;
-pub const COUNTER_VIA1: byte = 1;
-pub const COUNTER_VIA2: byte = 2;
-pub const MAX_COUNTERS: byte = 3;
 
 pub fn getAddress(lowByte: byte, highByte: byte) word {
     return @as(word, highByte) << 8 | @as(word, lowByte);
 }
 
 pub const RunResult = enum {
-    RESULT_STEP,
-    RESULT_NMI,
-    RESULT_RESET,
-    RESULT_IRQ,
-    RESULT_ILLEGAL_INSTUCTION,
+    STEP,
+    BREAK,
+    ILLEGAL_INSTUCTION,
 };
 
 /// Processor Status flags: Carry, Zero, Irq disable, Decimal mode, Break mode, oVerflow and Negative
@@ -71,7 +65,7 @@ pub const CPU6502 = struct {
     /// instruction cycles spent after start (overflows)
     cycles: i128 = 0,
     /// single step modus
-    single_step: bool = false,
+    single_step: bool = true,
 
     memoryManager: *Memory.Memory = undefined,
 
@@ -677,6 +671,7 @@ pub const CPU6502 = struct {
         var value_w: word = undefined;
 
         while (true) {
+            var result = RunResult.STEP;
             self.last_cycles = 0;
             opcode = self.memoryReadImmediate();
             switch (opcode) {
@@ -688,6 +683,7 @@ pub const CPU6502 = struct {
                     self.PS.I = true;
                     self.PC = self.memoryReadAddress(MEM_IRQ_BREAK);
                     self.last_cycles += 2;
+                    result = RunResult.BREAK;
                 },
                 0x01 => { // ORA (aa,X)
                     self.instructionORA(self.memoryReadIndexedIndirectX());
@@ -1462,12 +1458,13 @@ pub const CPU6502 = struct {
                 // Illegal opcode 0xFF: ISC aaaa,X
                 else => {
                     self.last_cycles += 1;
-                    return RunResult.RESULT_ILLEGAL_INSTUCTION;
+                    result = RunResult.ILLEGAL_INSTUCTION;
                 },
             }
 
             self.cycles +%= self.last_cycles; // adjust total cycle spent
-            if (self.single_step) return RunResult.RESULT_STEP;
+            if (result != RunResult.STEP) return result;
+            if (self.single_step) return RunResult.STEP;
         }
         unreachable; // while(true)
     }
