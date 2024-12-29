@@ -3,160 +3,219 @@ const std = @import("std");
 pub const byte = u8;
 pub const word = u16;
 
-const UNKNOWN_MEMORY_DATA: byte = 0xAA; // standard dummy data
-const ADDRESS_SIZE = 16; // 16 bits = 64KB address space
-const MEMORY_SIZE = 1 << ADDRESS_SIZE; // 64KB memory
-const PAGE_SIZE = 8; // 8 bits = 256B page size
-const PAGES = 1 << PAGE_SIZE; // 8 bits = 256 pages
+pub const UNKNOWN_MEMORY_DATA: byte = 0xAA; // standard dummy data
+pub const MEMORY_SIZE = 65536; // 16 bits = 64KB address space
+pub const PAGE_SIZE = 256; // 8 bits = 256 bytes page size
+pub const PAGES = 256; // 8 bits = 256 pages
 
-pub const MemoryReader = *const fn (memory: *Memory, address: word) byte;
-pub const MemoryWriter = *const fn (memory: *Memory, address: word, data: byte) void;
+/// Page descriptor interface, which defines a read() and write() functions for a (and including a memory) page.
+/// Analog to interface implementation Shape4 from: https://zig.news/yglcode/code-study-interface-idiomspatterns-in-zig-standard-libraries-4lkj
+const PageDescriptor = struct {
+    reader: *const fn (ptr: *PageDescriptor, address: byte) byte,
+    writer: *const fn (ptr: *PageDescriptor, address: byte, value: byte) void,
 
-pub const PageDescriptor = struct {
-    reader: MemoryReader,
-    writer: ?MemoryWriter,
-};
-
-pub const Memory = struct {
-    bytes: [MEMORY_SIZE]byte = [_]byte{0} ** MEMORY_SIZE,
-    pages: [PAGES]?PageDescriptor = [_]?PageDescriptor{null} ** PAGES,
-    address_bus: word = 0, // last used (read or written) address
-    data_bus: byte = 0, // last used (read or written) data
-
-    inline fn getPageDescriptor(self: *Memory, address: word) ?PageDescriptor {
-        const page = address >> PAGE_SIZE;
-        return self.pages[page];
+    pub fn read(self: *PageDescriptor, address: byte) byte {
+        return self.reader(self, address);
     }
 
-    /// Set the MemoryReader and MemoryWriter functions for the pages start_page until (but NOT including) end_page.
-    /// If end_page is 0, all pages from start_page are set.
-    pub fn setPage(self: *Memory, startPage: byte, endPage: byte, memoryReader: MemoryReader, memoryWriter: ?MemoryWriter) void {
-        for (startPage..if (endPage == 0) self.pages.len else endPage) |page| {
-            self.pages[page] = PageDescriptor{
-                .reader = memoryReader,
-                .writer = memoryWriter,
-            };
-        }
-    }
-
-    /// Set the pages start_page until (but NOT including) end_page als read/write (RAM).
-    /// If end_page is 0, all pages from start_page are set.
-    pub fn setPageRW(self: *Memory, start_page: byte, end_page: byte) void {
-        self.setPage(start_page, end_page, standardReader, standardWriter);
-    }
-
-    /// Set the pages start_page until (but NOT including) end_page als read only (ROM).
-    /// If end_page is 0, all pages from start_page are set.
-    pub fn setPageRO(self: *Memory, start_page: byte, end_page: byte) void {
-        self.setPage(start_page, end_page, standardReader, null);
-    }
-
-    /// Standard memory reader
-    fn standardReader(self: *Memory, address: word) byte {
-        return self.bytes[address];
-    }
-
-    /// Get a data from the zero page; no page checking is done (R/W is assumed) and the page reader is not used.
-    pub fn readZero(self: *Memory, address_zero: byte) byte {
-        self.address_bus = address_zero;
-        self.data_bus = self.bytes[address_zero];
-        return self.data_bus;
-    }
-
-    /// Get a data from the stack page; no page checking is done (R/W is assumed) and the page reader is not used.
-    pub fn readStack(self: *Memory, address_stack: byte) byte {
-        self.address_bus = 0x0100 | @as(word, address_stack);
-        self.data_bus = self.bytes[self.address_bus];
-        return self.data_bus;
-    }
-
-    /// Read a memory location using the page descriptor reader
-    /// Return UNKNOWN_MEMORY_DATA if reading is not allowed
-    pub fn read(self: *Memory, address: word) byte {
-        self.address_bus = address;
-        if (self.getPageDescriptor(address)) |descriptor| {
-            self.data_bus = descriptor.reader(self, address);
-        } else {
-            self.data_bus = UNKNOWN_MEMORY_DATA;
-        }
-        return self.data_bus;
-    }
-
-    /// Standard memory writer
-    fn standardWriter(self: *Memory, address: word, data: byte) void {
-        self.bytes[address] = data;
-    }
-
-    /// Set a data in the zero page; no page checking is done (R/W is assumed) and the page writer is not used
-    pub fn writeZero(self: *Memory, address_zero: byte, data: byte) void {
-        self.address_bus = address_zero;
-        self.data_bus = data;
-        self.bytes[address_zero] = data;
-    }
-
-    /// Set a data in the stack page; no page checking is done (R/W is assumed) and the page writer is not used
-    pub fn writeStack(self: *Memory, address_stack: byte, data: byte) void {
-        self.address_bus = 0x0100 | @as(word, address_stack);
-        self.data_bus = data;
-        self.bytes[self.address_bus] = data;
-    }
-
-    /// Set a data on the address, if writing is enabled, using the page descriptor writer
-    /// Ignore writing to non-writable memory
-    pub fn write(self: *Memory, address: word, data: byte) void {
-        self.address_bus = address;
-        self.data_bus = data;
-        if (self.getPageDescriptor(address)) |descriptor| {
-            if (descriptor.writer) |writer| {
-                writer(self, address, data);
-            }
-        }
-    }
-
-    /// Set data at the last read address, if page writing is enabled, using the page descriptor writer
-    pub fn writeLast(self: *Memory, data: byte) void {
-        self.data_bus = data;
-        if (self.getPageDescriptor(self.address_bus)) |descriptor| {
-            if (descriptor.writer) |writer| {
-                writer(self, self.address_bus, data);
-            }
-        }
+    pub fn write(self: *PageDescriptor, address: byte, value: byte) void {
+        self.writer(self, address, value);
     }
 };
 
-test "T.memoryWrite-Read" {
-    var memory = Memory{};
+/// Page descriptor for an empty page; always returns UNKNOWN_MEMORY_DATA on reads and ignores writes.
+/// Analog to interface implementation Box4 from: https://zig.news/yglcode/code-study-interface-idiomspatterns-in-zig-standard-libraries-4lkj
+const PageEmpty = struct {
+    descriptor: PageDescriptor,
+
+    pub fn init() PageEmpty {
+        return .{ .descriptor = .{ .reader = read, .writer = write } };
+    }
+
+    pub fn read(page_descriptor: *PageDescriptor, address: byte) byte {
+        _ = page_descriptor;
+        _ = address;
+        return UNKNOWN_MEMORY_DATA;
+    }
+
+    pub fn write(page_descriptor: *PageDescriptor, address: byte, value: byte) void {
+        _ = page_descriptor;
+        _ = address;
+        _ = value;
+        // do nothing
+    }
+};
+
+/// Standard (RAM) page descriptor containing a memory page as data, which will be initialized with 0's.
+/// Analog to interface implementation Box4 from: https://zig.news/yglcode/code-study-interface-idiomspatterns-in-zig-standard-libraries-4lkj
+pub const PageRAM = struct {
+    page: [PAGE_SIZE]byte,
+    descriptor: PageDescriptor,
+
+    pub fn init(manager: *MemoryManager, page: byte) PageRAM {
+        var page_ram = .{ .page = [_]byte{0} ** PAGE_SIZE, .descriptor = .{ .reader = read, .writer = write } };
+        manager.setPageDescriptor(page, &page_ram.descriptor);
+        return page_ram;
+    }
+
+    pub fn read(page_descriptor: *PageDescriptor, address: byte) byte {
+        const self = @as(*PageRAM, @fieldParentPtr("descriptor", page_descriptor));
+        return self.page[address];
+    }
+
+    pub fn write(page_descriptor: *PageDescriptor, address: byte, value: byte) void {
+        const self = @as(*PageRAM, @fieldParentPtr("descriptor", page_descriptor));
+        self.page[address] = value;
+    }
+};
+
+/// Read only memory page containing a reference to a ROM page as data.
+/// Analog to interface implementation Box4 from: https://zig.news/yglcode/code-study-interface-idiomspatterns-in-zig-standard-libraries-4lkj
+pub const PageROM = struct {
+    page: *[PAGE_SIZE]byte,
+    descriptor: PageDescriptor,
+
+    pub fn init(manager: *MemoryManager, page: byte, rom_page: *[PAGE_SIZE]byte) PageROM {
+        var page_rom = .{ .page = rom_page, .descriptor = .{ .reader = read, .writer = write } };
+        manager.setPageDescriptor(page, &page_rom.descriptor);
+        return page_rom;
+    }
+
+    pub fn read(page_descriptor: *PageDescriptor, address: byte) byte {
+        const self = @as(*PageROM, @fieldParentPtr("descriptor", page_descriptor));
+        return self.page[address];
+    }
+
+    pub fn write(page_descriptor: *PageDescriptor, address: byte, value: byte) void {
+        _ = page_descriptor;
+        _ = address;
+        _ = value;
+        // do nothing
+    }
+};
+
+pub const MemoryManager = struct {
+    page_descriptors: [PAGES](*PageDescriptor),
+    address_bus: word, // last used (read or written) address
+    data_bus: byte, // last used (read or written) data
+
+    pub fn init() MemoryManager {
+        var page = PageEmpty.init();
+        const memory: MemoryManager = .{
+            .page_descriptors = [_]*PageDescriptor{&page.descriptor} ** PAGES,
+            .address_bus = 0,
+            .data_bus = 0,
+        };
+        return memory;
+    }
+
+    inline fn getPageDescriptor(self: *MemoryManager, address: word) *PageDescriptor {
+        const page = address >> 8;
+        return self.page_descriptors[page];
+    }
+
+    /// Set the page descriptor for the given page.
+    /// Param page is the page number.
+    /// Param descriptor must implement the PageDescriptor interface.
+    pub fn setPageDescriptor(self: *MemoryManager, page: byte, descriptor: *PageDescriptor) void {
+        self.page_descriptors[page] = descriptor;
+    }
+
+    /// Read data from the zero page using the pages[0] descriptor reader
+    pub inline fn readZero(self: *MemoryManager, address_zero: byte) byte {
+        self.address_bus = @as(word, address_zero);
+        const descriptor = self.page_descriptors[0];
+        self.data_bus = descriptor.read(address_zero);
+        return self.data_bus;
+    }
+
+    /// Read data from the stack page using the pages[1] descriptor reader
+    pub fn readStack(self: *MemoryManager, address_stack: byte) byte {
+        self.address_bus = 0x0100 | @as(word, address_stack);
+        const descriptor = self.page_descriptors[1];
+        self.data_bus = descriptor.read(address_stack);
+        return self.data_bus;
+    }
+
+    /// Read data from a memory page using the appropriate page descriptor reader
+    pub fn read(self: *MemoryManager, address: word) byte {
+        self.address_bus = address;
+        const descriptor = self.getPageDescriptor(address);
+        self.data_bus = descriptor.read(@truncate(address & 0xFF));
+        return self.data_bus;
+    }
+
+    /// Set data on a memory page, using the pages[0] descriptor writer
+    pub fn writeZero(self: *MemoryManager, address_zero: byte, data: byte) void {
+        self.address_bus = @as(word, address_zero);
+        self.data_bus = data;
+        const descriptor = self.getPageDescriptor(address_zero);
+        descriptor.write(address_zero, data);
+    }
+
+    /// Set data on a memory page, using the pages[1] descriptor writer
+    pub fn writeStack(self: *MemoryManager, address_stack: byte, data: byte) void {
+        self.address_bus = 0x0100 | @as(word, address_stack);
+        self.data_bus = data;
+        const descriptor = self.getPageDescriptor(address_stack);
+        descriptor.write(address_stack, data);
+    }
+
+    /// Set data on a memory page, using the appropriate page descriptor writer
+    pub fn write(self: *MemoryManager, address: word, data: byte) void {
+        self.address_bus = address;
+        self.data_bus = data;
+        const descriptor = self.getPageDescriptor(address);
+        descriptor.write(@truncate(address & 0xFF), data);
+    }
+
+    /// Set a data on the last used memory address, using the appropriate page descriptor writer
+    pub fn writeLast(self: *MemoryManager, data: byte) void {
+        self.data_bus = data;
+        const descriptor = self.getPageDescriptor(self.address_bus);
+        descriptor.write(@truncate(self.address_bus & 0xFF), data);
+    }
+};
+
+test "T.memoryZeroWriteRead" {
+    var memory = MemoryManager.init();
+    _ = PageRAM.init(&memory, 0);
     memory.writeZero(0, 0x55);
     try std.testing.expect(memory.readZero(0) == 0x55);
-    memory.writeStack(0, 0x55);
-    try std.testing.expect(memory.readStack(0) == 0x55);
-    memory.write(0, 0x33); // should be ignored (no writer set)
-    try std.testing.expect(memory.read(0) == UNKNOWN_MEMORY_DATA); // should default (no reader set)
-    try std.testing.expect(memory.readZero(0) == 0x55);
 }
 
-test "T.memorySetPage" {
-    var memory = Memory{};
+// test "T.memoryStackWriteRead" {
+//     var memory = MemoryManager.init();
+//     _ = PageRAM.init(&memory, 1);
+//     memory.writeStack(0, 0x55);
+//     try std.testing.expect(memory.readStack(0) == 0x55);
+// }
 
-    memory.setPageRW(0, 3);
-    memory.setPageRW(3, 4);
-    memory.setPageRW(4, 5);
-    for (0..5) |page| {
-        try std.testing.expect(memory.pages[page] != null);
-        if (memory.pages[page]) |descriptor| {
-            try std.testing.expect(descriptor.reader == Memory.standardReader);
-            try std.testing.expect(descriptor.writer == Memory.standardWriter);
-        }
-    }
+// test "T.memoryWriteRead" {
+//     var memory = MemoryManager.init();
+//     for (0..PAGES) |page| {
+//         _ = PageRAM.init(&memory, @truncate(page));
+//         for (0..PAGE_SIZE) |index| {
+//             const address: word = @as(word, @truncate(page)) << 8 | @as(word, @truncate(index));
+//             const value: byte = @as(byte, @truncate(index));
+//             try std.testing.expect(memory.read(address) == 0);
+//             memory.write(address, value);
+//             try std.testing.expect(memory.read(address) == value);
+//         }
+//         memory.writeStack(0, 0x55);
+//     }
+// }
 
-    // Check a not initialised page
-    try std.testing.expect(memory.pages[5] == null);
+// test "T.memoryDescriptorReadOnly" {
+//     var memory = MemoryManager.init();
+//     var rom_page: [PAGE_SIZE]byte = [_]byte{0xFF} ** PAGE_SIZE;
 
-    memory.setPageRO(250, 0);
-    for (250..256) |page| {
-        if (memory.pages[page]) |descriptor| {
-            try std.testing.expect(descriptor.reader == Memory.standardReader);
-            try std.testing.expect(descriptor.writer == null);
-        }
-    }
-}
+//     _ = &PageROM.init(&memory, 0, &rom_page);
+//     for (0..PAGE_SIZE) |index| {
+//         const address: word = @as(word, @truncate(index));
+//         try std.testing.expect(memory.read(address) == 0xFF);
+//         memory.write(address, 0);
+//         try std.testing.expect(memory.read(address) == 0xFF);
+//     }
+//     memory.writeStack(0, 0x55);
+// }

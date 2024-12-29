@@ -2,6 +2,9 @@ const std = @import("std");
 const Memory = @import("memory.zig");
 const CPU = @import("cpu.zig");
 
+const byte = Memory.byte;
+const word = Memory.word;
+
 const JSon6502Status = struct {
     pc: u16,
     s: u8,
@@ -27,17 +30,9 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    // var path: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    // const cwd = try std.fs.realpath(".", &path);
-    // std.debug.print("CWD [{s}]\n", .{cwd});
-
     var dir = try std.fs.cwd().openDir("./resources/ProcessorTests", std.fs.Dir.OpenDirOptions{ .iterate = true });
     defer dir.close();
-
     try dir.setAsCwd();
-    // const cwd2 = try std.fs.realpath(".", &path);
-    // std.debug.print("CWD [{s}]\n", .{cwd2});
-
     var iter = dir.iterate();
     var errors: u32 = 0;
     var do_test = false;
@@ -59,7 +54,7 @@ pub fn main() !void {
                     continue;
                 };
                 // if (errors >= 1) {
-                //     // the whole implementation propably has some serious problems; no need to test any further
+                //     // the whole implementation probably has some serious problems; no need to test any further
                 //     std.debug.print("\n******** To many errors, aborting ********\n", .{});
                 //     break;
                 // }
@@ -107,8 +102,12 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
     const parsed = try std.json.parseFromSlice(JSonTest6502s, allocator, json_text, .{});
     defer parsed.deinit();
 
-    var memory6502 = Memory.Memory{};
-    memory6502.setPageRW(0, 0); // 64K of writable memory
+    var memory6502 = Memory.MemoryManager.init();
+    // 64K of writable memory
+    for (0..Memory.PAGES) |page| {
+        _ = Memory.PageRAM.init(&memory6502, @as(byte, @truncate(page)));
+    }
+    _ = memory6502.read(0);
 
     var cpu6502 = CPU.CPU6502{};
     cpu6502.init(&memory6502);
@@ -159,7 +158,7 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
             // }
             errors += 1;
             // if (errors >= 30) {
-            //     // implementation is propably wrong; no need to test any further
+            //     // implementation is probably wrong; no need to test any further
             //     std.debug.print("\n******** To many errors in this opcode, skipping the rest ********", .{});
             //     break;
             // }
@@ -185,7 +184,7 @@ fn executeTest(cpu6502: *CPU.CPU6502, entry: JSonTest6502) !bool {
     }
 
     cpu6502.single_step = true;
-    if (cpu6502.run() == CPU.RunResult.ILLEGAL_INSTUCTION) {
+    if (cpu6502.run() == CPU.RunResult.ILLEGAL_INSTRUCTION) {
         return error.InvalidItem;
     }
 
