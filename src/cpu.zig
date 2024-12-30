@@ -1476,22 +1476,26 @@ pub const CPU6502 = struct {
     }
 };
 
-// test "T.cpuRunSingleStep" {
-//     var memoryManager = Memory.MemoryManager.init();
-//     _ = Memory.PageRAM.init(&memoryManager, 0); // zero page
-//     _ = Memory.PageRAM.init(&memoryManager, 1); // stack page
+test "T.cpuRunSingleStep" {
+    var memoryManager = Memory.MemoryManager.init();
+    var page0 = [_]byte{0} ** Memory.PAGE_SIZE;
+    var descriptor0 = Memory.PageRAM.init(&page0); // zero page
+    memoryManager.setPageDescriptor(0, &descriptor0.descriptor);
+    var page1 = [_]byte{0} ** Memory.PAGE_SIZE;
+    var descriptor1 = Memory.PageRAM.init(&page1); // stack page
+    memoryManager.setPageDescriptor(1, &descriptor1.descriptor);
 
-//     var cpu = CPU6502{};
-//     cpu.init(&memoryManager);
-//     cpu.single_step = true; // execute only 1 instruction
+    var cpu = CPU6502{};
+    cpu.init(&memoryManager);
+    cpu.single_step = true; // execute only 1 instruction
 
-//     memoryManager.writeZero(0, 0xA9); // LDA #
-//     memoryManager.writeZero(1, 0xFF);
-//     cpu.PC = 0; // run from (zero-page) address 0
-//     _ = cpu.run();
+    memoryManager.writeZero(0, 0xA9); // LDA #
+    memoryManager.writeZero(1, 0xFF);
+    cpu.PC = 0; // run from (zero-page) address 0
+    _ = cpu.run();
 
-//     // Check a not initialized page
-//     try std.testing.expect(cpu.A == 0xFF);
-//     try std.testing.expect(cpu.PS.N); // 0xFF is a 2's-complement negative number
-//     try std.testing.expect(cpu.PC == 2);
-// }
+    // Check a not initialized page
+    try std.testing.expect(cpu.A == 0xFF);
+    try std.testing.expect(cpu.PS.N); // 0xFF is a 2's-complement negative number
+    try std.testing.expect(cpu.PC == 2);
+}

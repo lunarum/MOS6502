@@ -9,7 +9,7 @@ pub const PAGE_SIZE = 256; // 8 bits = 256 bytes page size
 pub const PAGES = 256; // 8 bits = 256 pages
 
 /// Page descriptor interface, which defines a read() and write() functions for a (and including a memory) page.
-/// Analog to interface implementation Shape4 from: https://zig.news/yglcode/code-study-interface-idiomspatterns-in-zig-standard-libraries-4lkj
+/// Analog to interface definition Shape4 from: https://zig.news/yglcode/code-study-interface-idiomspatterns-in-zig-standard-libraries-4lkj
 const PageDescriptor = struct {
     reader: *const fn (ptr: *PageDescriptor, address: byte) byte,
     writer: *const fn (ptr: *PageDescriptor, address: byte, value: byte) void,
@@ -46,15 +46,14 @@ const PageEmpty = struct {
     }
 };
 
-/// Standard (RAM) page descriptor containing a memory page as data, which will be initialized with 0's.
+/// Standard (RAM) page descriptor containing a reference to a memory page as data.
 /// Analog to interface implementation Box4 from: https://zig.news/yglcode/code-study-interface-idiomspatterns-in-zig-standard-libraries-4lkj
 pub const PageRAM = struct {
-    page: [PAGE_SIZE]byte,
+    page: *[PAGE_SIZE]byte,
     descriptor: PageDescriptor,
 
-    pub fn init(manager: *MemoryManager, page: byte) PageRAM {
-        var page_ram = .{ .page = [_]byte{0} ** PAGE_SIZE, .descriptor = .{ .reader = read, .writer = write } };
-        manager.setPageDescriptor(page, &page_ram.descriptor);
+    pub fn init(ram_page: *[PAGE_SIZE]byte) PageRAM {
+        const page_ram = .{ .page = ram_page, .descriptor = .{ .reader = read, .writer = write } };
         return page_ram;
     }
 
@@ -75,9 +74,8 @@ pub const PageROM = struct {
     page: *[PAGE_SIZE]byte,
     descriptor: PageDescriptor,
 
-    pub fn init(manager: *MemoryManager, page: byte, rom_page: *[PAGE_SIZE]byte) PageROM {
-        var page_rom = .{ .page = rom_page, .descriptor = .{ .reader = read, .writer = write } };
-        manager.setPageDescriptor(page, &page_rom.descriptor);
+    pub fn init(rom_page: *[PAGE_SIZE]byte) PageROM {
+        const page_rom = .{ .page = rom_page, .descriptor = .{ .reader = read, .writer = write } };
         return page_rom;
     }
 
@@ -94,8 +92,10 @@ pub const PageROM = struct {
     }
 };
 
+var page_empty: PageEmpty = PageEmpty.init();
+
 pub const MemoryManager = struct {
-    page_descriptors: [PAGES](*PageDescriptor),
+    page_descriptors: [PAGES](*PageDescriptor) = [_](*PageDescriptor){&page_empty.descriptor} ** PAGES,
     address_bus: word, // last used (read or written) address
     data_bus: byte, // last used (read or written) data
 
@@ -149,7 +149,7 @@ pub const MemoryManager = struct {
     pub fn writeZero(self: *MemoryManager, address_zero: byte, data: byte) void {
         self.address_bus = @as(word, address_zero);
         self.data_bus = data;
-        const descriptor = self.getPageDescriptor(address_zero);
+        const descriptor = self.page_descriptors[0];
         descriptor.write(address_zero, data);
     }
 
@@ -157,7 +157,7 @@ pub const MemoryManager = struct {
     pub fn writeStack(self: *MemoryManager, address_stack: byte, data: byte) void {
         self.address_bus = 0x0100 | @as(word, address_stack);
         self.data_bus = data;
-        const descriptor = self.getPageDescriptor(address_stack);
+        const descriptor = self.page_descriptors[1];
         descriptor.write(address_stack, data);
     }
 
@@ -177,45 +177,63 @@ pub const MemoryManager = struct {
     }
 };
 
+test "T.memoryUninitializedWriteRead" {
+    var memory = MemoryManager.init();
+    try std.testing.expect(memory.read(0) == UNKNOWN_MEMORY_DATA);
+    memory.write(0, 0);
+    try std.testing.expect(memory.read(0) == UNKNOWN_MEMORY_DATA); // No change
+}
+
 test "T.memoryZeroWriteRead" {
     var memory = MemoryManager.init();
-    _ = PageRAM.init(&memory, 0);
+    var zero_page = [_]byte{0} ** PAGE_SIZE;
+    var zero_descriptor = PageRAM.init(&zero_page);
+    memory.setPageDescriptor(0, &zero_descriptor.descriptor);
+    try std.testing.expect(zero_descriptor.page == &zero_page);
     memory.writeZero(0, 0x55);
+    try std.testing.expect(zero_page[0] == 0x55);
     try std.testing.expect(memory.readZero(0) == 0x55);
 }
 
-// test "T.memoryStackWriteRead" {
-//     var memory = MemoryManager.init();
-//     _ = PageRAM.init(&memory, 1);
-//     memory.writeStack(0, 0x55);
-//     try std.testing.expect(memory.readStack(0) == 0x55);
-// }
+test "T.memoryStackWriteRead" {
+    var memory = MemoryManager.init();
+    var stack_page = [_]byte{0} ** PAGE_SIZE;
+    var stack_descriptor = PageRAM.init(&stack_page);
+    memory.setPageDescriptor(1, &stack_descriptor.descriptor);
+    try std.testing.expect(stack_descriptor.page == &stack_page);
+    memory.writeStack(0, 0x55);
+    try std.testing.expect(stack_page[0] == 0x55);
+    try std.testing.expect(memory.readStack(0) == 0x55);
+}
 
-// test "T.memoryWriteRead" {
-//     var memory = MemoryManager.init();
-//     for (0..PAGES) |page| {
-//         _ = PageRAM.init(&memory, @truncate(page));
-//         for (0..PAGE_SIZE) |index| {
-//             const address: word = @as(word, @truncate(page)) << 8 | @as(word, @truncate(index));
-//             const value: byte = @as(byte, @truncate(index));
-//             try std.testing.expect(memory.read(address) == 0);
-//             memory.write(address, value);
-//             try std.testing.expect(memory.read(address) == value);
-//         }
-//         memory.writeStack(0, 0x55);
-//     }
-// }
+test "T.memoryWriteRead" {
+    var memory_pages: [PAGES][PAGE_SIZE]byte = .{.{0} ** PAGE_SIZE} ** PAGES;
+    var memory = MemoryManager.init();
+    for (0..PAGES) |page| {
+        var page_descriptor = PageRAM.init(&memory_pages[page]);
+        memory.setPageDescriptor(@truncate(page), &page_descriptor.descriptor);
+        for (0..PAGE_SIZE) |index| {
+            const address: word = @as(word, @truncate(page)) << 8 | @as(word, @truncate(index));
+            const value: byte = @as(byte, @truncate(index));
+            try std.testing.expect(memory.read(address) == 0);
+            memory.write(address, value);
+            try std.testing.expect(memory.read(address) == value);
+        }
+    }
+}
 
-// test "T.memoryDescriptorReadOnly" {
-//     var memory = MemoryManager.init();
-//     var rom_page: [PAGE_SIZE]byte = [_]byte{0xFF} ** PAGE_SIZE;
-
-//     _ = &PageROM.init(&memory, 0, &rom_page);
-//     for (0..PAGE_SIZE) |index| {
-//         const address: word = @as(word, @truncate(index));
-//         try std.testing.expect(memory.read(address) == 0xFF);
-//         memory.write(address, 0);
-//         try std.testing.expect(memory.read(address) == 0xFF);
-//     }
-//     memory.writeStack(0, 0x55);
-// }
+test "T.memoryDescriptorReadOnly" {
+    var memory_pages: [PAGES][PAGE_SIZE]byte = .{.{0} ** PAGE_SIZE} ** PAGES;
+    var memory = MemoryManager.init();
+    for (0..PAGES) |page| {
+        var page_descriptor = PageROM.init(&memory_pages[page]);
+        memory.setPageDescriptor(@truncate(page), &page_descriptor.descriptor);
+        for (0..PAGE_SIZE) |index| {
+            const address: word = @as(word, @truncate(page)) << 8 | @as(word, @truncate(index));
+            const value: byte = @as(byte, @truncate(index));
+            try std.testing.expect(memory.read(address) == 0);
+            memory.write(address, value);
+            try std.testing.expect(memory.read(address) == 0); // No change
+        }
+    }
+}

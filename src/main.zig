@@ -35,11 +35,9 @@ pub fn main() !void {
     try dir.setAsCwd();
     var iter = dir.iterate();
     var errors: u32 = 0;
-    var do_test = false;
     while (try iter.next()) |entry| {
         if (entry.kind == std.fs.File.Kind.file and (entry.name.len > 5 and std.mem.eql(u8, entry.name[(entry.name.len - 5)..], ".json"))) {
-            if (do_test or std.mem.eql(u8, entry.name, "00.json")) {
-                do_test = true;
+            if (std.mem.eql(u8, entry.name, "00 copy.json")) {
                 std.debug.print("\n******** File [{s}] ", .{entry.name});
 
                 var json_file = try dir.openFile(entry.name, .{});
@@ -50,15 +48,15 @@ pub fn main() !void {
 
                 errors += parseJSon(allocator, json_text) catch |err| {
                     if (err == error.InvalidItem)
-                        std.debug.print("{s} ", .{entry.name});
+                        std.debug.print("******** ERROR in {s} ********", .{entry.name});
                     continue;
                 };
-                // if (errors >= 1) {
-                //     // the whole implementation probably has some serious problems; no need to test any further
-                //     std.debug.print("\n******** To many errors, aborting ********\n", .{});
-                //     break;
-                // }
-                // break;
+                if (errors >= 100) {
+                    // the whole implementation probably has some serious problems; no need to test any further
+                    std.debug.print("\n******** To many errors, aborting ********\n", .{});
+                    break;
+                }
+                break;
             }
         }
     }
@@ -103,11 +101,14 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
     defer parsed.deinit();
 
     var memory6502 = Memory.MemoryManager.init();
-    // 64K of writable memory
+    // // 64K of writable memory
+    const memory: [Memory.PAGES][Memory.PAGE_SIZE]byte = .{.{0} ** Memory.PAGE_SIZE} ** Memory.PAGES;
+    var pages: [Memory.PAGES]Memory.PageRAM = undefined;
     for (0..Memory.PAGES) |page| {
-        _ = Memory.PageRAM.init(&memory6502, @as(byte, @truncate(page)));
+        var page_mem = memory[page];
+        pages[page] = Memory.PageRAM.init(&page_mem);
+        memory6502.setPageDescriptor(@as(byte, @truncate(page)), &pages[page].descriptor);
     }
-    _ = memory6502.read(0);
 
     var cpu6502 = CPU.CPU6502{};
     cpu6502.init(&memory6502);
@@ -157,11 +158,11 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
             //     }
             // }
             errors += 1;
-            // if (errors >= 30) {
-            //     // implementation is probably wrong; no need to test any further
-            //     std.debug.print("\n******** To many errors in this opcode, skipping the rest ********", .{});
-            //     break;
-            // }
+            if (errors >= 30) {
+                // implementation is probably wrong; no need to test any further
+                std.debug.print("\n******** To many errors in this opcode, skipping the rest ********", .{});
+                break;
+            }
         }
     }
     if (errors == 0) {
