@@ -15,11 +15,14 @@ const PageDescriptor = struct {
     writer: *const fn (ptr: *PageDescriptor, address: byte, value: byte) void,
 
     pub fn read(self: *PageDescriptor, address: byte) byte {
-        return self.reader(self, address);
+        const value = self.reader(self, address);
+        // std.debug.print(" R:{x:2}{x:2}={x:2}\n", .{ self.page_index, address, value });
+        return value;
     }
 
     pub fn write(self: *PageDescriptor, address: byte, value: byte) void {
         self.writer(self, address, value);
+        // std.debug.print(" W:{x:2}{x:2}={x:2}\n", .{ self.page_index, address, value });
     }
 };
 
@@ -208,10 +211,11 @@ test "T.memoryStackWriteRead" {
 
 test "T.memoryWriteRead" {
     var memory_pages: [PAGES][PAGE_SIZE]byte = .{.{0} ** PAGE_SIZE} ** PAGES;
+    var ram_pages: [PAGES]PageRAM = undefined;
     var memory = MemoryManager.init();
-    for (0..PAGES) |page| {
-        var page_descriptor = PageRAM.init(&memory_pages[page]);
-        memory.setPageDescriptor(@truncate(page), &page_descriptor.descriptor);
+    for (0..PAGES - 254) |page| {
+        ram_pages[page] = PageRAM.init(&memory_pages[page]);
+        memory.setPageDescriptor(@truncate(page), &ram_pages[page].descriptor);
         for (0..PAGE_SIZE) |index| {
             const address: word = @as(word, @truncate(page)) << 8 | @as(word, @truncate(index));
             const value: byte = @as(byte, @truncate(index));
