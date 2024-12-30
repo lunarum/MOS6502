@@ -16,8 +16,8 @@ Add the following to your .dependencies in your _build.zig.zon_ file:
         .dependencies {
             ...
             .mos6502 = .{
-                .url = "https://github.com/lunarum/MOS6502/archive/refs/tags/v1.0.0.tar.gz",
-                .hash = "12203372b7dde2fd6c52e706696ecb821daefe203c2d6cd1997c5aa8c62ff8f7e064",
+                .url = "https://github.com/lunarum/MOS6502/archive/refs/tags/v1.1.0.tar.gz",
+                .hash = "12207ba5ad8c613785826135f5fa5bb80f5966faa1c49562259c8d2529afd7ef595d",
             },
         },
         ...
@@ -50,5 +50,23 @@ const mos6502 = @import("mos6502");
 const CPU6502 = mos6502.CPU6502;
 const byte = mos6502.byte;
 const word = mos6502.word;
-const Memory = mos6502.Memory.Memory;
+const MemoryManager = mos6502.Memory.MemoryManager;
+```
+
+Creating a system with 64KB RAM memory and writing / reading (see also the tests in Memory.zig):
+
+``` zig
+    var memory_pages: [PAGES][PAGE_SIZE]byte = .{.{0} ** PAGE_SIZE} ** PAGES; // 64KB memory
+    var ram_pages: [PAGES]PageRAM = undefined; // 256 PageRAM descriptors
+    var memory = MemoryManager.init();
+    for (0..PAGES) |page| {
+        ram_pages[page] = PageRAM.init(&memory_pages[page]); // create and init a PageRAM descriptor and associate it with a memory page
+        memory.setPageDescriptor(@truncate(page), &ram_pages[page].descriptor); // make page descriptor known to the MemoryManager
+        for (0..PAGE_SIZE) |index| {
+            const address: word = @as(word, @truncate(page)) << 8 | @as(word, @truncate(index));
+            const value: byte = @as(byte, @truncate(index));
+            memory.write(address, value);
+            _ = memory.read(address);
+        }
+    }
 ```
