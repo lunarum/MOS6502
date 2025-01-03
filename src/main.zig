@@ -99,16 +99,14 @@ fn parseJSon(allocator: std.mem.Allocator, json_text: []u8) !u32 {
     const parsed = try std.json.parseFromSlice(JSonTest6502s, allocator, json_text, .{});
     defer parsed.deinit();
 
-    var memory6502 = Memory.MemoryManager.init();
+    var cpu6502 = CPU.CPU6502.init();
     // // 64K of writable memory
     var memory: [Memory.PAGES][Memory.PAGE_SIZE]byte = .{.{0} ** Memory.PAGE_SIZE} ** Memory.PAGES;
     var pages: [Memory.PAGES]Memory.PageRAM = undefined;
     for (0..Memory.PAGES) |page| {
         pages[page] = Memory.PageRAM.init(&memory[page]);
-        memory6502.setPageDescriptor(@as(byte, @truncate(page)), &pages[page].descriptor);
+        cpu6502.memory_manager.setPageDescriptor(@as(byte, @truncate(page)), &pages[page].descriptor);
     }
-    var cpu6502 = CPU.CPU6502{};
-    cpu6502.init(&memory6502);
     cpu6502.single_step = true; // execute only 1 instruction
 
     var errors: u32 = 0;
@@ -178,7 +176,7 @@ fn executeTest(cpu6502: *CPU.CPU6502, entry: JSonTest6502) !bool {
     cpu6502.Y = entry.initial.y;
     cpu6502.PS = @bitCast(entry.initial.p);
     for (entry.initial.ram) |ram_entry| {
-        cpu6502.memoryManager.write(ram_entry.@"0", ram_entry.@"1");
+        cpu6502.memory_manager.write(ram_entry.@"0", ram_entry.@"1");
     }
 
     cpu6502.single_step = true;
@@ -187,7 +185,7 @@ fn executeTest(cpu6502: *CPU.CPU6502, entry: JSonTest6502) !bool {
     }
 
     for (entry.final.ram) |ram_entry| {
-        if (cpu6502.memoryManager.read(ram_entry.@"0") != ram_entry.@"1") {
+        if (cpu6502.memory_manager.read(ram_entry.@"0") != ram_entry.@"1") {
             return false;
         }
     }

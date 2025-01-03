@@ -63,11 +63,14 @@ pub const CPU6502 = struct {
     /// single step modus
     single_step: bool = true,
 
-    memoryManager: *Memory.MemoryManager = undefined,
+    memory_manager: Memory.MemoryManager = undefined,
 
-    pub fn init(self: *CPU6502, memoryManager: *Memory.MemoryManager) void {
-        self.memoryManager = memoryManager;
-        self.reset();
+    pub fn init() CPU6502 {
+        var cpu6502 = CPU6502{
+            .memory_manager = Memory.MemoryManager.init(),
+        };
+        cpu6502.reset();
+        return cpu6502;
     }
 
     /// Resets the CPU to it's initial state i.e. loads PC with the MEM_RESET vector,
@@ -114,8 +117,8 @@ pub const CPU6502 = struct {
     /// ----------------
     /// Read an address (word)) from given memory address, which is stored in little endian (LSB first) format.
     fn memoryReadAddress(self: *CPU6502, address: word) word {
-        const lowByte: word = self.memoryManager.read(address);
-        const highByte: word = self.memoryManager.read(address + 1);
+        const lowByte: word = self.memory_manager.read(address);
+        const highByte: word = self.memory_manager.read(address + 1);
         return highByte << 8 | lowByte;
     }
 
@@ -124,7 +127,7 @@ pub const CPU6502 = struct {
     /// Push a value (byte) onto the stack (page 1) at location pointed to by SP, which grows downwards, taking 2 cycles.
     fn stackPush(self: *CPU6502, value: byte) void {
         self.last_cycles += 2;
-        self.memoryManager.writeStack(self.SP, value);
+        self.memory_manager.writeStack(self.SP, value);
         self.SP -%= 1;
     }
 
@@ -134,7 +137,7 @@ pub const CPU6502 = struct {
     fn stackPull(self: *CPU6502) byte {
         self.last_cycles += 2;
         self.SP +%= 1;
-        return self.memoryManager.readStack(self.SP);
+        return self.memory_manager.readStack(self.SP);
     }
 
     /// stackPushAddress
@@ -142,9 +145,9 @@ pub const CPU6502 = struct {
     /// Push an address (word) onto the stack (page 1) at location pointed to by SP, taking 2 cycles.
     /// The address is pushed MSB first, but because the stack grows downwards, resulting in a little endian stored address.
     fn stackPushAddress(self: *CPU6502, address: word) void {
-        self.memoryManager.writeStack(self.SP, @truncate(address >> 8));
+        self.memory_manager.writeStack(self.SP, @truncate(address >> 8));
         self.SP -%= 1;
-        self.memoryManager.writeStack(self.SP, @truncate(address));
+        self.memory_manager.writeStack(self.SP, @truncate(address));
         self.SP -%= 1;
     }
 
@@ -154,9 +157,9 @@ pub const CPU6502 = struct {
     fn stackPullAddress(self: *CPU6502) word {
         self.last_cycles += 3;
         self.SP +%= 1;
-        const lowByte: word = self.memoryManager.readStack(self.SP);
+        const lowByte: word = self.memory_manager.readStack(self.SP);
         self.SP +%= 1;
-        const highByte: word = self.memoryManager.readStack(self.SP);
+        const highByte: word = self.memory_manager.readStack(self.SP);
         return highByte << 8 | lowByte;
     }
 
@@ -166,7 +169,7 @@ pub const CPU6502 = struct {
     ///
     /// For example, LDA #$1A loads the value $1A into the accumulator.
     fn memoryReadImmediate(self: *CPU6502) byte {
-        const value = self.memoryManager.read(self.PC);
+        const value = self.memory_manager.read(self.PC);
         self.PC +%= 1;
         self.last_cycles += 1;
         return value;
@@ -180,7 +183,7 @@ pub const CPU6502 = struct {
     /// For example, LDA $1234 reads the value in memory location $1234 and stores it into the accumulator.
     fn memoryReadAbsolute(self: *CPU6502) byte {
         self.last_cycles += 3;
-        return self.memoryManager.read(createAddress(self.memoryReadImmediate(), self.memoryReadImmediate()));
+        return self.memory_manager.read(createAddress(self.memoryReadImmediate(), self.memoryReadImmediate()));
     }
 
     /// memoryReadAbsoluteAddress
@@ -202,7 +205,7 @@ pub const CPU6502 = struct {
     /// For example, STA $1A2B stores the present value of the accumulator in memory location $1A2B.
     fn memoryWriteAbsolute(self: *CPU6502, value: byte) void {
         self.last_cycles += 3;
-        self.memoryManager.write(createAddress(self.memoryReadImmediate(), self.memoryReadImmediate()), value);
+        self.memory_manager.write(createAddress(self.memoryReadImmediate(), self.memoryReadImmediate()), value);
     }
 
     /// memoryReadZeroPage
@@ -213,7 +216,7 @@ pub const CPU6502 = struct {
     /// For example, LDA $34 reads the value in memory location $0034 and stores it into the accumulator.
     fn memoryReadZeroPage(self: *CPU6502) byte {
         self.last_cycles += 2;
-        return self.memoryManager.readZero(self.memoryReadImmediate());
+        return self.memory_manager.readZero(self.memoryReadImmediate());
     }
 
     /// memoryWriteZeroPage
@@ -224,7 +227,7 @@ pub const CPU6502 = struct {
     /// For example, STA $34 stores the present value of the accumulator in memory location $0034.
     fn memoryWriteZeroPage(self: *CPU6502, value: byte) void {
         self.last_cycles += 2;
-        self.memoryManager.writeZero(self.memoryReadImmediate(), value);
+        self.memory_manager.writeZero(self.memoryReadImmediate(), value);
     }
 
     /// memoryReadAbsoluteIndexedX
@@ -240,7 +243,7 @@ pub const CPU6502 = struct {
         const address = createAddress(lowByte, highByte) +% self.X;
         // crossing a page boundary adds an extra cycle
         self.last_cycles += if (highByte != address >> 8) 4 else 3;
-        return self.memoryManager.read(address);
+        return self.memory_manager.read(address);
     }
 
     /// memoryReadAbsoluteIndexedY
@@ -256,7 +259,7 @@ pub const CPU6502 = struct {
         const address = createAddress(lowByte, highByte) +% self.Y;
         // crossing a page boundary adds an extra cycle
         self.last_cycles += if (highByte != address >> 8) 4 else 3;
-        return self.memoryManager.read(address);
+        return self.memory_manager.read(address);
     }
 
     /// memoryWriteAbsoluteIndexedX
@@ -271,7 +274,7 @@ pub const CPU6502 = struct {
         const highByte = self.memoryReadImmediate();
         const address = createAddress(lowByte, highByte) +% self.X;
         self.last_cycles += 4;
-        self.memoryManager.write(address, value);
+        self.memory_manager.write(address, value);
     }
 
     /// memoryWriteAbsoluteIndexedY
@@ -286,7 +289,7 @@ pub const CPU6502 = struct {
         const highByte = self.memoryReadImmediate();
         const address = createAddress(lowByte, highByte) +% self.Y;
         self.last_cycles += 4;
-        self.memoryManager.write(address, value);
+        self.memory_manager.write(address, value);
     }
 
     /// memoryReadIndirectAbsoluteAddress
@@ -302,9 +305,9 @@ pub const CPU6502 = struct {
     /// Only JMP uses this addressing mode, so e.g. JMP ($1234), with memory $1234 containing $CD and $1235 containing $AB, jumps to $ABCD.
     fn memoryReadIndirectAbsoluteAddress(self: *CPU6502) word {
         const address = createAddress(self.memoryReadImmediate(), self.memoryReadImmediate());
-        const lowByte = self.memoryManager.read(address);
+        const lowByte = self.memory_manager.read(address);
         // 6502 bug: fetching the full address doesn't cross a page boundary but wraps around on the same page
-        const highByte = self.memoryManager.read(if (address & 0xFF == 0xFF) get_page_part(address) else address + 1);
+        const highByte = self.memory_manager.read(if (address & 0xFF == 0xFF) get_page_part(address) else address + 1);
         self.last_cycles += 5;
         return createAddress(lowByte, highByte);
     }
@@ -319,7 +322,7 @@ pub const CPU6502 = struct {
     /// $0024 ($34 + $F0 = $0124 => $0024) into the accumulator.
     fn memoryReadZeroPageIndexedX(self: *CPU6502) byte {
         self.last_cycles += 3;
-        return self.memoryManager.readZero(self.memoryReadImmediate() +% self.X);
+        return self.memory_manager.readZero(self.memoryReadImmediate() +% self.X);
     }
 
     /// memoryReadZeroPageIndexedY
@@ -332,7 +335,7 @@ pub const CPU6502 = struct {
     /// $0024 ($34 + $F0 = $0124 => $0024) into the accumulator.
     fn memoryReadZeroPageIndexedY(self: *CPU6502) byte {
         self.last_cycles += 3;
-        return self.memoryManager.readZero(self.memoryReadImmediate() +% self.Y);
+        return self.memory_manager.readZero(self.memoryReadImmediate() +% self.Y);
     }
 
     /// memoryWriteZeroPageIndexedX
@@ -345,7 +348,7 @@ pub const CPU6502 = struct {
     /// in memory location $0024 ($34 + $F0 = $0124 => $0024).
     fn memoryWriteZeroPageIndexedX(self: *CPU6502, value: byte) void {
         self.last_cycles += 3;
-        self.memoryManager.writeZero(self.memoryReadImmediate() +% self.X, value);
+        self.memory_manager.writeZero(self.memoryReadImmediate() +% self.X, value);
     }
 
     /// memoryWriteZeroPageIndexedY
@@ -357,7 +360,7 @@ pub const CPU6502 = struct {
     /// For example, STA $34, Y, when Y contains $F0 stores the present value of the accumulator in memory location $0024 ($34 + $F0 = $0124 => $0024).
     fn memoryWriteZeroPageIndexedY(self: *CPU6502, value: byte) void {
         self.last_cycles += 3;
-        self.memoryManager.writeZero(self.memoryReadImmediate() +% self.Y, value);
+        self.memory_manager.writeZero(self.memoryReadImmediate() +% self.Y, value);
     }
 
     /// memoryReadIndexedIndirectX
@@ -369,9 +372,9 @@ pub const CPU6502 = struct {
     /// $3B containing $AB, results in loading the accumulator with the byte value at $ABCD.
     fn memoryReadIndexedIndirectX(self: *CPU6502) byte {
         const addressZ: byte = self.memoryReadImmediate() +% self.X;
-        const address = createAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1));
+        const address = createAddress(self.memory_manager.readZero(addressZ), self.memory_manager.readZero(addressZ +% 1));
         self.last_cycles += 5;
-        return self.memoryManager.read(address);
+        return self.memory_manager.read(address);
     }
 
     /// memoryWriteIndexedIndirectX
@@ -384,9 +387,9 @@ pub const CPU6502 = struct {
     /// $CD and on $3B containing $AB, results in writing the accumulator byte value to $ABCD.
     fn memoryWriteIndexedIndirectX(self: *CPU6502, value: byte) void {
         const addressZ: byte = self.memoryReadImmediate() +% self.X;
-        const address = createAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1));
+        const address = createAddress(self.memory_manager.readZero(addressZ), self.memory_manager.readZero(addressZ +% 1));
         self.last_cycles += 5;
-        self.memoryManager.write(address, value);
+        self.memory_manager.write(address, value);
     }
 
     /// memoryReadIndirectIndexedY
@@ -399,11 +402,11 @@ pub const CPU6502 = struct {
     /// containing $AB, results in loading the accumulator with the byte value at $ABCD.
     fn memoryReadIndirectIndexedY(self: *CPU6502) byte {
         const addressZ: byte = self.memoryReadImmediate();
-        const highByte = self.memoryManager.readZero(addressZ +% 1);
-        const address = createAddress(self.memoryManager.readZero(addressZ), highByte) +% self.Y;
+        const highByte = self.memory_manager.readZero(addressZ +% 1);
+        const address = createAddress(self.memory_manager.readZero(addressZ), highByte) +% self.Y;
         // crossing a page boundary adds an extra cycle
         self.last_cycles += if (highByte != address >> 8) 5 else 4;
-        return self.memoryManager.read(address);
+        return self.memory_manager.read(address);
     }
 
     /// memoryWriteIndirectIndexedY
@@ -416,9 +419,9 @@ pub const CPU6502 = struct {
     /// $C7 and on $35 containing $AB, results in writing the accumulator byte value to $ABCD.
     fn memoryWriteIndirectIndexedY(self: *CPU6502, value: byte) void {
         const addressZ: byte = self.memoryReadImmediate();
-        const address = createAddress(self.memoryManager.readZero(addressZ), self.memoryManager.readZero(addressZ +% 1)) +% self.Y;
+        const address = createAddress(self.memory_manager.readZero(addressZ), self.memory_manager.readZero(addressZ +% 1)) +% self.Y;
         self.last_cycles += 5;
-        self.memoryManager.write(address, value);
+        self.memory_manager.write(address, value);
     }
 
     /// memoryReadRelativeAddress
@@ -444,7 +447,7 @@ pub const CPU6502 = struct {
     /// -------------------------
     /// Write to the last address read from, taking 1 cycle.
     fn memoryWriteLast(self: *CPU6502, value_b: byte) void {
-        self.memoryManager.writeLast(value_b);
+        self.memory_manager.writeLast(value_b);
         self.last_cycles += 1;
     }
 
@@ -863,7 +866,7 @@ pub const CPU6502 = struct {
                     value >>= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0x47: SRE aa
                 0x48 => { // PHA
@@ -902,7 +905,7 @@ pub const CPU6502 = struct {
                     value >>= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0x4F: SRE aaaa
                 0x50 => { // BVC aaaa
@@ -932,7 +935,7 @@ pub const CPU6502 = struct {
                     value >>= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0x57: SRE aa,X
                 0x58 => { // CLI
@@ -963,7 +966,7 @@ pub const CPU6502 = struct {
                     value >>= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0x5F: SRE aaaa,X
                 0x60 => { // RTS
@@ -1293,7 +1296,7 @@ pub const CPU6502 = struct {
                     value -%= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0xC7: DCP aa
                 0xC8 => { // INY
@@ -1324,7 +1327,7 @@ pub const CPU6502 = struct {
                     value -%= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0xCF: DCP aaaa
                 0xD0 => { // BNE aaaa
@@ -1345,7 +1348,7 @@ pub const CPU6502 = struct {
                     value -%= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0xD7: DCP aa,X
                 0xD8 => { // CLD
@@ -1367,7 +1370,7 @@ pub const CPU6502 = struct {
                     value -%= 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0xDF: DCP aaaa,X
                 0xE0 => { // CPX #aa
@@ -1389,7 +1392,7 @@ pub const CPU6502 = struct {
                     value = self.memoryReadZeroPage() +% 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0xE7: ISC aa
                 0xE8 => { // INX
@@ -1418,7 +1421,7 @@ pub const CPU6502 = struct {
                     value = self.memoryReadAbsolute() +% 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0xEF: ISC aaaa
                 0xF0 => { // BEQ aaaa
@@ -1438,7 +1441,7 @@ pub const CPU6502 = struct {
                     value = self.memoryReadZeroPageIndexedX() +% 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0xF7: ISC aa,X
                 0xF8 => { // SED
@@ -1459,7 +1462,7 @@ pub const CPU6502 = struct {
                     value = self.memoryReadAbsoluteIndexedX() +% 1;
                     self.calculateN(value);
                     self.calculateZ(value);
-                    self.memoryManager.writeLast(value);
+                    self.memory_manager.writeLast(value);
                 },
                 // Illegal opcode 0xFF: ISC aaaa,X
                 else => {
@@ -1477,20 +1480,18 @@ pub const CPU6502 = struct {
 };
 
 test "T.cpuRunSingleStep" {
-    var memoryManager = Memory.MemoryManager.init();
+    var cpu = CPU6502.init();
+    cpu.memory_manager = Memory.MemoryManager.init();
     var page0 = [_]byte{0} ** Memory.PAGE_SIZE;
     var descriptor0 = Memory.PageRAM.init(&page0); // zero page
-    memoryManager.setPageDescriptor(0, &descriptor0.descriptor);
+    cpu.memory_manager.setPageDescriptor(0, &descriptor0.descriptor);
     var page1 = [_]byte{0} ** Memory.PAGE_SIZE;
     var descriptor1 = Memory.PageRAM.init(&page1); // stack page
-    memoryManager.setPageDescriptor(1, &descriptor1.descriptor);
-
-    var cpu = CPU6502{};
-    cpu.init(&memoryManager);
+    cpu.memory_manager.setPageDescriptor(1, &descriptor1.descriptor);
     cpu.single_step = true; // execute only 1 instruction
 
-    memoryManager.writeZero(0, 0xA9); // LDA #
-    memoryManager.writeZero(1, 0xFF);
+    cpu.memory_manager.writeZero(0, 0xA9); // LDA #
+    cpu.memory_manager.writeZero(1, 0xFF);
     cpu.PC = 0; // run from (zero-page) address 0
     _ = cpu.run();
 
